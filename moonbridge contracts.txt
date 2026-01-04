@@ -1,0 +1,4 @@
+moonbridge contracts
+
+nova bridge address: 0xe30B42CceC7b4B0C232137B1C76e149d13Df1e58
+one bridge address: 0x26aca1E588b27dC510538D5200c0B6e5409c8681

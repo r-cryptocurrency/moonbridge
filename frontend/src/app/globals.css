@@ -1,0 +1,145 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --font-space: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-space);
+}
+
+body {
+  background: linear-gradient(135deg, #0a0a0f 0%, #12121a 50%, #0a0a0f 100%);
+  min-height: 100vh;
+  color: #e5e5e5;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1a1a26;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #f07220;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #f39044;
+}
+
+/* Glow effects */
+.glow-orange {
+  box-shadow: 0 0 20px rgba(240, 114, 32, 0.3),
+              0 0 40px rgba(240, 114, 32, 0.1);
+}
+
+.glow-orange-intense {
+  box-shadow: 0 0 30px rgba(240, 114, 32, 0.5),
+              0 0 60px rgba(240, 114, 32, 0.2);
+}
+
+/* Glass effect */
+.glass {
+  background: rgba(26, 26, 38, 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Button styles */
+.btn-primary {
+  @apply bg-gradient-to-r from-moon-500 to-moon-600 text-white font-semibold py-3 px-6 rounded-xl;
+  @apply hover:from-moon-400 hover:to-moon-500 transition-all duration-200;
+  @apply disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:from-moon-500 disabled:hover:to-moon-600;
+}
+
+.btn-secondary {
+  @apply bg-space-700 text-white font-medium py-2 px-4 rounded-lg;
+  @apply border border-space-600 hover:border-moon-500/50 transition-all duration-200;
+  @apply disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+/* Input styles */
+.input-field {
+  @apply w-full bg-space-800 border border-space-600 rounded-xl px-4 py-3;
+  @apply text-white placeholder-gray-500 font-mono text-lg;
+  @apply focus:outline-none focus:border-moon-500 focus:ring-1 focus:ring-moon-500/50;
+  @apply transition-all duration-200;
+}
+
+/* Card styles */
+.card {
+  @apply bg-space-800/80 backdrop-blur-xl rounded-2xl border border-space-600;
+  @apply p-6 shadow-xl;
+}
+
+/* Animations */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* Moon icon animation */
+@keyframes moon-float {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  25% {
+    transform: translateY(-5px) rotate(2deg);
+  }
+  75% {
+    transform: translateY(5px) rotate(-2deg);
+  }
+}
+
+.moon-float {
+  animation: moon-float 4s ease-in-out infinite;
+}
+
+/* Status badge colors */
+.status-pending {
+  @apply bg-yellow-500/20 text-yellow-400 border-yellow-500/30;
+}
+
+.status-fulfilled, .status-completed {
+  @apply bg-green-500/20 text-green-400 border-green-500/30;
+}
+
+.status-refunded, .status-partial {
+  @apply bg-blue-500/20 text-blue-400 border-blue-500/30;
+}
+
+.status-cancelled {
+  @apply bg-red-500/20 text-red-400 border-red-500/30;
+}
+
+/* Rainbow kit overrides */
+[data-rk] {
+  --rk-colors-accentColor: #f07220 !important;
+  --rk-colors-accentColorForeground: white !important;
+}
