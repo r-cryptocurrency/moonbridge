@@ -10,11 +10,11 @@ export const CHAIN_IDS = {
 // Contract addresses - UPDATE AFTER DEPLOYMENT
 export const CONTRACTS = {
   [CHAIN_IDS.ARBITRUM_NOVA]: {
-    bridge: '0xe30B42CceC7b4B0C232137B1C76e149d13Df1e58' as Address,
+    bridge: '0x2a0a8e541623411Fc16233B35BDC539f51939716f' as Address,
     moonToken: '0x0057Ac2d777797d31CD3f8f13bF5e927571D6Ad0' as Address,
   },
   [CHAIN_IDS.ARBITRUM_ONE]: {
-    bridge: '0x26aca1E588b27dC510538D5200c0B6e5409c8681' as Address,
+    bridge: '0x2a0a8e541623411Fc16233B35BDC539f51939716f' as Address,
     moonToken: '0x24404DC041d74cd03cFE28855F555559390C931b' as Address,
   },
 } as const;
