@@ -233,6 +233,12 @@ export default function BridgePage() {
   // Swap chains
   const handleSwapChains = () => {
     handleSourceChainChange(destChain);
+    // Refetch data after chain swap
+    setTimeout(() => {
+      refetchBalance();
+      refetchAllowance();
+      refetchLiquidity();
+    }, 1000);
   };
 
   // Handle bridge action
