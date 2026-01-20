@@ -5,7 +5,6 @@ export const CHAIN_CONFIG = {
     name: 'Arbitrum Nova',
     rpcUrl: process.env.ARBITRUM_NOVA_RPC_URL,
     bridgeAddress: process.env.BRIDGE_NOVA_ADDRESS,
-    moonTokenAddress: process.env.MOON_TOKEN_NOVA,
     confirmations: 2, // Wait for 2 block confirmations
   },
   arbitrumOne: {
@@ -13,32 +12,114 @@ export const CHAIN_CONFIG = {
     name: 'Arbitrum One',
     rpcUrl: process.env.ARBITRUM_ONE_RPC_URL,
     bridgeAddress: process.env.BRIDGE_ONE_ADDRESS,
-    moonTokenAddress: process.env.MOON_TOKEN_ONE,
+    confirmations: 2,
+  },
+  ethereum: {
+    chainId: 1,
+    name: 'Ethereum',
+    rpcUrl: process.env.ETHEREUM_RPC_URL,
+    bridgeAddress: process.env.BRIDGE_ETHEREUM_ADDRESS,
+    confirmations: 3, // More confirmations for mainnet
+  },
+  gnosis: {
+    chainId: 100,
+    name: 'Gnosis',
+    rpcUrl: process.env.GNOSIS_RPC_URL,
+    bridgeAddress: process.env.BRIDGE_GNOSIS_ADDRESS,
     confirmations: 2,
   },
 };
 
+// Asset configuration
+export const ASSETS = {
+  MOON: {
+    id: 'MOON',
+    name: 'Moon',
+    addresses: {
+      42170: '0x0057Ac2d777797d31CD3f8f13bF5e927571D6Ad0', // Nova
+      42161: '0x24404DC041d74cd03cFE28855F555559390C931b', // Arbitrum One
+      1: '0xb2490e357980cE57bF5745e181e537a64Eb367B1',     // Ethereum
+      100: null, // Not available on Gnosis
+    },
+  },
+  ETH: {
+    id: 'ETH',
+    name: 'Ethereum',
+    addresses: {
+      42170: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE', // Native ETH sentinel
+      42161: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE', // Native ETH sentinel
+      1: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',     // Native ETH sentinel
+      100: '0x6A023CCd1ff6F2045C3309768eAD9E68F978f6e1',   // WETH on Gnosis
+    },
+  },
+  USDC: {
+    id: 'USDC',
+    name: 'USD Coin',
+    addresses: {
+      42170: '0x750ba8b76187092b0d1e87e28daaf484d1b5273b', // Nova
+      42161: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', // Arbitrum One
+      1: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',     // Ethereum
+      100: '0xDDAfbb505ad214D7b80b1f830fcCc89B60fb7A83',   // Gnosis
+    },
+  },
+  DONUT: {
+    id: 'DONUT',
+    name: 'Donut',
+    addresses: {
+      42170: null, // Not available on Nova
+      42161: '0xF42e2B8bc2aF8B110b65be98dB1321B1ab8D44f5', // Arbitrum One
+      1: '0xC0F9bD5Fa5698B6505F643900FFA515Ea5dF54A9',     // Ethereum
+      100: '0x524B969793a64a602342d89BC2789D43a016B13A',   // Gnosis
+    },
+  },
+};
+
+// Native ETH sentinel address
+export const NATIVE_ETH_SENTINEL = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+
 // Get chain config by ID
 export function getChainConfig(chainId) {
-  if (chainId === 42170n || chainId === 42170) {
-    return CHAIN_CONFIG.arbitrumNova;
+  const id = typeof chainId === 'bigint' ? Number(chainId) : chainId;
+
+  switch (id) {
+    case 42170:
+      return CHAIN_CONFIG.arbitrumNova;
+    case 42161:
+      return CHAIN_CONFIG.arbitrumOne;
+    case 1:
+      return CHAIN_CONFIG.ethereum;
+    case 100:
+      return CHAIN_CONFIG.gnosis;
+    default:
+      throw new Error(`Unknown chain ID: ${chainId}`);
   }
-  if (chainId === 42161n || chainId === 42161) {
-    return CHAIN_CONFIG.arbitrumOne;
-  }
-  throw new Error(`Unknown chain ID: ${chainId}`);
 }
 
-// Get destination chain config
-export function getDestinationChain(sourceChainId) {
-  const sourceId = BigInt(sourceChainId);
-  if (sourceId === 42170n) {
-    return CHAIN_CONFIG.arbitrumOne;
+// Get all chain configs
+export function getAllChainConfigs() {
+  return Object.values(CHAIN_CONFIG);
+}
+
+// Get asset address for a specific chain
+export function getAssetAddress(assetId, chainId) {
+  const id = typeof chainId === 'bigint' ? Number(chainId) : chainId;
+  const asset = ASSETS[assetId];
+
+  if (!asset) {
+    throw new Error(`Unknown asset ID: ${assetId}`);
   }
-  if (sourceId === 42161n) {
-    return CHAIN_CONFIG.arbitrumNova;
+
+  const address = asset.addresses[id];
+  if (!address) {
+    throw new Error(`Asset ${assetId} not available on chain ${chainId}`);
   }
-  throw new Error(`Unknown source chain ID: ${sourceChainId}`);
+
+  return address;
+}
+
+// Check if asset address is native ETH
+export function isNativeETH(address) {
+  return address.toLowerCase() === NATIVE_ETH_SENTINEL.toLowerCase();
 }
 
 // Relayer configuration
@@ -49,124 +130,101 @@ export const RELAYER_CONFIG = {
   gasMultiplier: parseFloat(process.env.GAS_MULTIPLIER || '1.2'),
 };
 
-// Bridge ABI (events and functions we need)
+// Bridge V2 ABI (events and functions we need)
 export const BRIDGE_ABI = [
   // Events
   {
     type: 'event',
     name: 'BridgeRequested',
     inputs: [
-      { name: 'requestId', type: 'bytes32', indexed: true },
-      { name: 'sourceChainId', type: 'uint256', indexed: true },
-      { name: 'destChainId', type: 'uint256', indexed: true },
+      { name: 'bridgeId', type: 'bytes32', indexed: true },
+      { name: 'assetId', type: 'bytes32', indexed: true },
+      { name: 'fromChainId', type: 'uint256', indexed: true },
+      { name: 'toChainId', type: 'uint256', indexed: false },
       { name: 'requester', type: 'address', indexed: false },
       { name: 'recipient', type: 'address', indexed: false },
       { name: 'amount', type: 'uint256', indexed: false },
-      { name: 'ethFeeWei', type: 'uint256', indexed: false },
-      { name: 'nonce', type: 'uint256', indexed: false },
     ],
   },
   {
     type: 'event',
     name: 'BridgeFulfilled',
     inputs: [
-      { name: 'requestId', type: 'bytes32', indexed: true },
-      { name: 'relayer', type: 'address', indexed: true },
-      { name: 'fulfilledAmount', type: 'uint256', indexed: false },
-      { name: 'fulfilledFee', type: 'uint256', indexed: false },
-      { name: 'recipientReceived', type: 'uint256', indexed: false },
+      { name: 'bridgeId', type: 'bytes32', indexed: true },
+      { name: 'assetId', type: 'bytes32', indexed: true },
+      { name: 'recipient', type: 'address', indexed: false },
+      { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'relayer', type: 'address', indexed: false },
     ],
   },
   {
     type: 'event',
-    name: 'BridgeRefunded',
+    name: 'LiquidityDeposited',
     inputs: [
-      { name: 'requestId', type: 'bytes32', indexed: true },
-      { name: 'relayer', type: 'address', indexed: true },
-      { name: 'refundAmount', type: 'uint256', indexed: false },
-      { name: 'refundFee', type: 'uint256', indexed: false },
-      { name: 'requesterReceived', type: 'uint256', indexed: false },
+      { name: 'assetId', type: 'bytes32', indexed: true },
+      { name: 'depositor', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'lpTokensMinted', type: 'uint256', indexed: false },
     ],
   },
   {
     type: 'event',
-    name: 'RequestCancelled',
+    name: 'LiquidityWithdrawn',
     inputs: [
-      { name: 'requestId', type: 'bytes32', indexed: true },
-      { name: 'requester', type: 'address', indexed: true },
+      { name: 'assetId', type: 'bytes32', indexed: true },
+      { name: 'withdrawer', type: 'address', indexed: true },
+      { name: 'lpTokensBurned', type: 'uint256', indexed: false },
+      { name: 'amountReceived', type: 'uint256', indexed: false },
+      { name: 'amountQueued', type: 'uint256', indexed: false },
     ],
   },
   // View functions
   {
     type: 'function',
-    name: 'getRequest',
-    stateMutability: 'view',
-    inputs: [{ name: 'requestId', type: 'bytes32' }],
-    outputs: [
-      {
-        name: 'request',
-        type: 'tuple',
-        components: [
-          { name: 'sourceChainId', type: 'uint256' },
-          { name: 'destChainId', type: 'uint256' },
-          { name: 'requester', type: 'address' },
-          { name: 'recipient', type: 'address' },
-          { name: 'amount', type: 'uint256' },
-          { name: 'ethFee', type: 'uint256' },
-          { name: 'nonce', type: 'uint256' },
-          { name: 'fulfilledAmount', type: 'uint256' },
-          { name: 'refundedAmount', type: 'uint256' },
-          { name: 'ethFeePaid', type: 'bool' },
-        ],
-      },
-      { name: 'status', type: 'uint8' },
-    ],
-  },
-  {
-    type: 'function',
     name: 'getAvailableLiquidity',
     stateMutability: 'view',
-    inputs: [],
+    inputs: [{ name: 'assetId', type: 'bytes32' }],
     outputs: [{ name: '', type: 'uint256' }],
   },
   {
     type: 'function',
-    name: 'requestStatus',
+    name: 'processedBridges',
     stateMutability: 'view',
-    inputs: [{ name: 'requestId', type: 'bytes32' }],
-    outputs: [{ name: '', type: 'uint8' }],
+    inputs: [{ name: 'bridgeId', type: 'bytes32' }],
+    outputs: [{ name: '', type: 'bool' }],
   },
   // Write functions
   {
     type: 'function',
-    name: 'fulfill',
-    stateMutability: 'nonpayable',
+    name: 'fulfillBridge',
+    stateMutability: 'payable',
     inputs: [
-      { name: 'requestId', type: 'bytes32' },
-      { name: 'sourceChainId', type: 'uint256' },
-      { name: 'requester', type: 'address' },
+      { name: 'bridgeId', type: 'bytes32' },
+      { name: 'assetId', type: 'bytes32' },
       { name: 'recipient', type: 'address' },
-      { name: 'totalAmount', type: 'uint256' },
-      { name: 'fulfillAmount', type: 'uint256' },
-      { name: 'nonce', type: 'uint256' },
+      { name: 'amount', type: 'uint256' },
+      { name: 'fromChainId', type: 'uint256' },
     ],
     outputs: [],
   },
   {
     type: 'function',
-    name: 'refund',
+    name: 'deposit',
+    stateMutability: 'payable',
+    inputs: [
+      { name: 'assetId', type: 'bytes32' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'withdraw',
     stateMutability: 'nonpayable',
     inputs: [
-      { name: 'requestId', type: 'bytes32' },
-      { name: 'refundAmount', type: 'uint256' },
+      { name: 'assetId', type: 'bytes32' },
+      { name: 'lpTokenAmount', type: 'uint256' },
     ],
-    outputs: [],
-  },
-  {
-    type: 'function',
-    name: 'markCompleted',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'requestId', type: 'bytes32' }],
     outputs: [],
   },
 ];
@@ -182,21 +240,21 @@ export const ERC20_ABI = [
   },
 ];
 
-// Request status enum matching contract
-export const RequestStatus = {
-  None: 0,
-  Pending: 1,
-  Fulfilled: 2,
-  PartialFilled: 3,
-  Refunded: 4,
-  Completed: 5,
-  Cancelled: 6,
-};
-
-// Fee constants
+// Fee constants for V2
 export const FEES = {
-  FULFILL_FEE_BPS: 100n, // 1%
-  REFUND_FEE_BPS: 100n, // 1%
-  MAX_REFUND_FEE: BigInt(100) * BigInt(10 ** 18), // 100 MOON
+  TOTAL_FEE_BPS: 100n, // 1% total fee
+  LP_FEE_BPS: 80n, // 0.8% to LPs
+  DAO_FEE_BPS: 20n, // 0.2% to DAO
   BPS_DENOMINATOR: 10000n,
 };
+
+// Asset ID helper - converts string to bytes32
+export function assetIdToBytes32(assetId) {
+  // Convert "MOON", "ETH", etc. to bytes32
+  const bytes = new TextEncoder().encode(assetId);
+  const hex = '0x' + Array.from(bytes)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+    .padEnd(64, '0');
+  return hex;
+}

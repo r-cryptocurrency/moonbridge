@@ -5,23 +5,46 @@ import {
   http,
   formatEther,
   parseAbiItem,
+  parseEther,
+  getAddress,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { arbitrum, arbitrumNova } from 'viem/chains';
+import { arbitrum, arbitrumNova, mainnet, gnosis } from 'viem/chains';
 import {
   CHAIN_CONFIG,
+  getAllChainConfigs,
   getChainConfig,
-  getDestinationChain,
+  getAssetAddress,
+  isNativeETH,
+  NATIVE_ETH_SENTINEL,
+  ASSETS,
   BRIDGE_ABI,
-  RequestStatus,
+  ERC20_ABI,
   FEES,
   RELAYER_CONFIG,
+  assetIdToBytes32,
 } from './config.js';
 
 // State tracking for processed requests
 const processedRequests = new Map();
 
-// Initialize clients
+// Get viem chain object by chain ID
+function getViemChain(chainId) {
+  switch (chainId) {
+    case 42170:
+      return arbitrumNova;
+    case 42161:
+      return arbitrum;
+    case 1:
+      return mainnet;
+    case 100:
+      return gnosis;
+    default:
+      throw new Error(`Unknown chain ID: ${chainId}`);
+  }
+}
+
+// Initialize clients for all chains
 function initializeClients() {
   const privateKey = process.env.RELAYER_PRIVATE_KEY;
   if (!privateKey) {
@@ -31,143 +54,121 @@ function initializeClients() {
   const account = privateKeyToAccount(privateKey);
   console.log(`Relayer address: ${account.address}`);
 
-  // Nova clients
-  const novaPublicClient = createPublicClient({
-    chain: arbitrumNova,
-    transport: http(CHAIN_CONFIG.arbitrumNova.rpcUrl),
-  });
+  const clients = { account };
 
-  const novaWalletClient = createWalletClient({
-    account,
-    chain: arbitrumNova,
-    transport: http(CHAIN_CONFIG.arbitrumNova.rpcUrl),
-  });
+  // Initialize clients for all configured chains
+  const chainConfigs = getAllChainConfigs();
+  for (const config of chainConfigs) {
+    const viemChain = getViemChain(config.chainId);
 
-  // One clients
-  const onePublicClient = createPublicClient({
-    chain: arbitrum,
-    transport: http(CHAIN_CONFIG.arbitrumOne.rpcUrl),
-  });
+    clients[config.chainId] = {
+      public: createPublicClient({
+        chain: viemChain,
+        transport: http(config.rpcUrl),
+      }),
+      wallet: createWalletClient({
+        account,
+        chain: viemChain,
+        transport: http(config.rpcUrl),
+      }),
+      config,
+    };
+  }
 
-  const oneWalletClient = createWalletClient({
-    account,
-    chain: arbitrum,
-    transport: http(CHAIN_CONFIG.arbitrumOne.rpcUrl),
-  });
-
-  return {
-    nova: {
-      public: novaPublicClient,
-      wallet: novaWalletClient,
-      config: CHAIN_CONFIG.arbitrumNova,
-    },
-    one: {
-      public: onePublicClient,
-      wallet: oneWalletClient,
-      config: CHAIN_CONFIG.arbitrumOne,
-    },
-    account,
-  };
+  return clients;
 }
 
 // Get client by chain ID
 function getClientByChainId(clients, chainId) {
-  const id = BigInt(chainId);
-  if (id === 42170n) return clients.nova;
-  if (id === 42161n) return clients.one;
-  throw new Error(`Unknown chain ID: ${chainId}`);
-}
-
-// Calculate fees
-function calculateFees(fulfillAmount, refundAmount) {
-  const fulfillFee = (fulfillAmount * FEES.FULFILL_FEE_BPS) / FEES.BPS_DENOMINATOR;
-  let refundFee = (refundAmount * FEES.REFUND_FEE_BPS) / FEES.BPS_DENOMINATOR;
-  if (refundFee > FEES.MAX_REFUND_FEE) {
-    refundFee = FEES.MAX_REFUND_FEE;
+  const id = typeof chainId === 'bigint' ? Number(chainId) : chainId;
+  const client = clients[id];
+  if (!client) {
+    throw new Error(`No client for chain ID: ${chainId}`);
   }
-  return { fulfillFee, refundFee };
+  return client;
 }
 
-// Check destination liquidity
-async function getDestinationLiquidity(clients, destChainId) {
+// Get asset name from bytes32 ID
+function getAssetNameFromBytes32(assetIdBytes32) {
+  // Find matching asset
+  for (const [name, asset] of Object.entries(ASSETS)) {
+    if (assetIdToBytes32(name) === assetIdBytes32) {
+      return name;
+    }
+  }
+  return assetIdBytes32;
+}
+
+// Check destination liquidity for a specific asset
+async function getDestinationLiquidity(clients, destChainId, assetId) {
   const destClient = getClientByChainId(clients, destChainId);
-  
+  const assetIdBytes32 = assetIdToBytes32(assetId);
+
   const liquidity = await destClient.public.readContract({
     address: destClient.config.bridgeAddress,
     abi: BRIDGE_ABI,
     functionName: 'getAvailableLiquidity',
+    args: [assetIdBytes32],
   });
 
   return liquidity;
 }
 
-// Check if request is already processed on destination
-async function isRequestProcessedOnDest(clients, destChainId, requestId) {
+// Check if bridge is already processed on destination
+async function isBridgeProcessed(clients, destChainId, bridgeId) {
   const destClient = getClientByChainId(clients, destChainId);
-  
+
   try {
-    const status = await destClient.public.readContract({
+    const processed = await destClient.public.readContract({
       address: destClient.config.bridgeAddress,
       abi: BRIDGE_ABI,
-      functionName: 'requestStatus',
-      args: [requestId],
+      functionName: 'processedBridges',
+      args: [bridgeId],
     });
-    
-    return status !== RequestStatus.None && status !== RequestStatus.PartialFilled;
+
+    return processed;
   } catch {
     return false;
   }
 }
 
-// Check if request is already processed on source
-async function isRequestProcessedOnSource(clients, sourceChainId, requestId) {
-  const sourceClient = getClientByChainId(clients, sourceChainId);
-  
-  try {
-    const [, status] = await sourceClient.public.readContract({
-      address: sourceClient.config.bridgeAddress,
-      abi: BRIDGE_ABI,
-      functionName: 'getRequest',
-      args: [requestId],
-    });
-    
-    return (
-      status === RequestStatus.Completed ||
-      status === RequestStatus.Refunded ||
-      status === RequestStatus.Cancelled
-    );
-  } catch {
-    return false;
-  }
-}
+// Execute fulfillBridge on destination chain
+async function executeFulfillBridge(clients, bridgeRequest) {
+  const destClient = getClientByChainId(clients, bridgeRequest.toChainId);
 
-// Execute fulfill on destination chain
-async function executeFulfill(clients, request, fulfillAmount) {
-  const destClient = getClientByChainId(clients, request.destChainId);
-  
-  console.log(`Executing fulfill on ${destClient.config.name}...`);
-  console.log(`  Request ID: ${request.requestId}`);
-  console.log(`  Fulfill Amount: ${formatEther(fulfillAmount)} MOON`);
+  console.log(`Executing fulfillBridge on ${destClient.config.name}...`);
+  console.log(`  Bridge ID: ${bridgeRequest.bridgeId}`);
+  console.log(`  Asset: ${bridgeRequest.assetId}`);
+  console.log(`  Amount: ${formatEther(bridgeRequest.amount)}`);
 
   try {
-    const { request: txRequest } = await destClient.public.simulateContract({
+    const assetIdBytes32 = assetIdToBytes32(bridgeRequest.assetId);
+    const assetAddress = getAssetAddress(bridgeRequest.assetId, bridgeRequest.toChainId);
+    const isNativeAsset = isNativeETH(assetAddress);
+
+    // For native ETH, we need to send ETH value
+    const txOptions = {
       address: destClient.config.bridgeAddress,
       abi: BRIDGE_ABI,
-      functionName: 'fulfill',
+      functionName: 'fulfillBridge',
       args: [
-        request.requestId,
-        request.sourceChainId,
-        request.requester,
-        request.recipient,
-        request.amount,
-        fulfillAmount,
-        request.nonce,
+        bridgeRequest.bridgeId,
+        assetIdBytes32,
+        bridgeRequest.recipient,
+        bridgeRequest.amount,
+        bridgeRequest.fromChainId,
       ],
       account: clients.account,
-    });
+    };
+
+    if (isNativeAsset) {
+      txOptions.value = bridgeRequest.amount;
+    }
+
+    const { request: txRequest } = await destClient.public.simulateContract(txOptions);
 
     const hash = await destClient.wallet.writeContract(txRequest);
-    console.log(`  Fulfill TX: ${hash}`);
+    console.log(`  FulfillBridge TX: ${hash}`);
 
     // Wait for confirmation
     const receipt = await destClient.public.waitForTransactionReceipt({
@@ -175,84 +176,18 @@ async function executeFulfill(clients, request, fulfillAmount) {
       confirmations: destClient.config.confirmations,
     });
 
-    console.log(`  Fulfill confirmed in block ${receipt.blockNumber}`);
+    console.log(`  FulfillBridge confirmed in block ${receipt.blockNumber}`);
     return { success: true, hash, receipt };
   } catch (error) {
-    console.error(`  Fulfill failed: ${error.message}`);
-    return { success: false, error };
-  }
-}
-
-// Execute refund on source chain
-async function executeRefund(clients, request, refundAmount) {
-  const sourceClient = getClientByChainId(clients, request.sourceChainId);
-  
-  console.log(`Executing refund on ${sourceClient.config.name}...`);
-  console.log(`  Request ID: ${request.requestId}`);
-  console.log(`  Refund Amount: ${formatEther(refundAmount)} MOON`);
-
-  try {
-    const { request: txRequest } = await sourceClient.public.simulateContract({
-      address: sourceClient.config.bridgeAddress,
-      abi: BRIDGE_ABI,
-      functionName: 'refund',
-      args: [request.requestId, refundAmount],
-      account: clients.account,
-    });
-
-    const hash = await sourceClient.wallet.writeContract(txRequest);
-    console.log(`  Refund TX: ${hash}`);
-
-    // Wait for confirmation
-    const receipt = await sourceClient.public.waitForTransactionReceipt({
-      hash,
-      confirmations: sourceClient.config.confirmations,
-    });
-
-    console.log(`  Refund confirmed in block ${receipt.blockNumber}`);
-    return { success: true, hash, receipt };
-  } catch (error) {
-    console.error(`  Refund failed: ${error.message}`);
-    return { success: false, error };
-  }
-}
-
-// Execute markCompleted on source chain (for full fulfills)
-async function executeMarkCompleted(clients, request) {
-  const sourceClient = getClientByChainId(clients, request.sourceChainId);
-  
-  console.log(`Marking request completed on ${sourceClient.config.name}...`);
-  console.log(`  Request ID: ${request.requestId}`);
-
-  try {
-    const { request: txRequest } = await sourceClient.public.simulateContract({
-      address: sourceClient.config.bridgeAddress,
-      abi: BRIDGE_ABI,
-      functionName: 'markCompleted',
-      args: [request.requestId],
-      account: clients.account,
-    });
-
-    const hash = await sourceClient.wallet.writeContract(txRequest);
-    console.log(`  MarkCompleted TX: ${hash}`);
-
-    const receipt = await sourceClient.public.waitForTransactionReceipt({
-      hash,
-      confirmations: sourceClient.config.confirmations,
-    });
-
-    console.log(`  MarkCompleted confirmed in block ${receipt.blockNumber}`);
-    return { success: true, hash, receipt };
-  } catch (error) {
-    console.error(`  MarkCompleted failed: ${error.message}`);
+    console.error(`  FulfillBridge failed: ${error.message}`);
     return { success: false, error };
   }
 }
 
 // Process a bridge request
-async function processRequest(clients, request) {
-  const requestKey = `${request.requestId}-${request.sourceChainId}`;
-  
+async function processBridgeRequest(clients, bridgeRequest) {
+  const requestKey = `${bridgeRequest.bridgeId}`;
+
   // Skip if already processing
   if (processedRequests.has(requestKey)) {
     return;
@@ -262,94 +197,65 @@ async function processRequest(clients, request) {
   console.log('\n========================================');
   console.log('Processing Bridge Request');
   console.log('========================================');
-  console.log(`Request ID: ${request.requestId}`);
-  console.log(`From: ${getChainConfig(request.sourceChainId).name}`);
-  console.log(`To: ${getChainConfig(request.destChainId).name}`);
-  console.log(`Requester: ${request.requester}`);
-  console.log(`Recipient: ${request.recipient}`);
-  console.log(`Amount: ${formatEther(request.amount)} MOON`);
-  console.log(`ETH Fee: ${formatEther(request.ethFee)} ETH`);
+  console.log(`Bridge ID: ${bridgeRequest.bridgeId}`);
+  console.log(`Asset: ${bridgeRequest.assetId}`);
+  console.log(`From: ${getChainConfig(bridgeRequest.fromChainId).name}`);
+  console.log(`To: ${getChainConfig(bridgeRequest.toChainId).name}`);
+  console.log(`Requester: ${bridgeRequest.requester}`);
+  console.log(`Recipient: ${bridgeRequest.recipient}`);
+  console.log(`Amount: ${formatEther(bridgeRequest.amount)}`);
 
   try {
     // Check if already processed on destination
-    const destProcessed = await isRequestProcessedOnDest(clients, request.destChainId, request.requestId);
-    if (destProcessed) {
-      console.log('Request already processed on destination, checking source...');
-      
-      // Check source status
-      const sourceProcessed = await isRequestProcessedOnSource(clients, request.sourceChainId, request.requestId);
-      if (sourceProcessed) {
-        console.log('Request fully processed, skipping.');
+    const alreadyProcessed = await isBridgeProcessed(clients, bridgeRequest.toChainId, bridgeRequest.bridgeId);
+    if (alreadyProcessed) {
+      console.log('Bridge already processed on destination, skipping.');
+      processedRequests.set(requestKey, { status: 'completed', timestamp: Date.now() });
+      return;
+    }
+
+    // Get destination liquidity for this asset
+    const liquidity = await getDestinationLiquidity(
+      clients,
+      bridgeRequest.toChainId,
+      bridgeRequest.assetId
+    );
+    console.log(`Destination Liquidity: ${formatEther(liquidity)} ${bridgeRequest.assetId}`);
+
+    // Check if we have enough liquidity
+    if (liquidity < bridgeRequest.amount) {
+      console.log(`Insufficient liquidity. Need ${formatEther(bridgeRequest.amount)}, have ${formatEther(liquidity)}`);
+      console.log('Skipping this bridge request. Will be queued for LPs to withdraw.');
+      processedRequests.set(requestKey, { status: 'insufficient_liquidity', timestamp: Date.now() });
+      return;
+    }
+
+    // Execute fulfill
+    const fulfillResult = await executeFulfillBridge(clients, bridgeRequest);
+    if (!fulfillResult.success) {
+      // Check if it's because someone else fulfilled
+      const nowProcessed = await isBridgeProcessed(clients, bridgeRequest.toChainId, bridgeRequest.bridgeId);
+      if (nowProcessed) {
+        console.log('Bridge was fulfilled by another relayer');
         processedRequests.set(requestKey, { status: 'completed', timestamp: Date.now() });
         return;
-      }
-    }
-
-    // Get destination liquidity
-    const liquidity = await getDestinationLiquidity(clients, request.destChainId);
-    console.log(`Destination Liquidity: ${formatEther(liquidity)} MOON`);
-
-    // Calculate how much we can fulfill
-    const fulfillAmount = liquidity >= request.amount ? request.amount : liquidity;
-    const refundAmount = request.amount - fulfillAmount;
-
-    console.log(`Fulfill Amount: ${formatEther(fulfillAmount)} MOON`);
-    console.log(`Refund Amount: ${formatEther(refundAmount)} MOON`);
-
-    // Calculate fees
-    const { fulfillFee, refundFee } = calculateFees(fulfillAmount, refundAmount);
-    console.log(`Fulfill Fee: ${formatEther(fulfillFee)} MOON (1%)`);
-    if (refundAmount > 0n) {
-      console.log(`Refund Fee: ${formatEther(refundFee)} MOON (1%, max 100)`);
-    }
-
-    // Execute fulfill if there's liquidity
-    if (fulfillAmount > 0n) {
-      const fulfillResult = await executeFulfill(clients, request, fulfillAmount);
-      if (!fulfillResult.success) {
-        // Check if it's because someone else fulfilled
-        const alreadyFulfilled = await isRequestProcessedOnDest(clients, request.destChainId, request.requestId);
-        if (alreadyFulfilled) {
-          console.log('Request was fulfilled by another relayer');
-        } else {
-          throw new Error(`Fulfill failed: ${fulfillResult.error.message}`);
-        }
-      }
-    }
-
-    // Execute refund if partial fill or zero liquidity
-    if (refundAmount > 0n) {
-      const refundResult = await executeRefund(clients, request, refundAmount);
-      if (!refundResult.success) {
-        // Check if it's because someone else refunded
-        const sourceProcessed = await isRequestProcessedOnSource(clients, request.sourceChainId, request.requestId);
-        if (sourceProcessed) {
-          console.log('Request was refunded by another relayer');
-        } else {
-          throw new Error(`Refund failed: ${refundResult.error.message}`);
-        }
-      }
-    } else if (fulfillAmount === request.amount) {
-      // Full fulfill - mark completed on source to pay ETH fee
-      const markResult = await executeMarkCompleted(clients, request);
-      if (!markResult.success) {
-        // Not critical, ETH fee just won't be paid
-        console.log('Warning: Could not mark completed on source');
+      } else {
+        throw new Error(`FulfillBridge failed: ${fulfillResult.error.message}`);
       }
     }
 
     processedRequests.set(requestKey, { status: 'completed', timestamp: Date.now() });
-    console.log('Request processed successfully!');
+    console.log('Bridge request processed successfully!');
 
   } catch (error) {
-    console.error(`Error processing request: ${error.message}`);
+    console.error(`Error processing bridge request: ${error.message}`);
     processedRequests.set(requestKey, { status: 'error', error: error.message, timestamp: Date.now() });
   }
 }
 
 // Watch for bridge requests on a chain
 async function watchChain(clients, chain) {
-  console.log(`Watching for requests on ${chain.config.name}...`);
+  console.log(`Watching for BridgeRequested events on ${chain.config.name}...`);
 
   const unwatch = chain.public.watchContractEvent({
     address: chain.config.bridgeAddress,
@@ -357,15 +263,17 @@ async function watchChain(clients, chain) {
     eventName: 'BridgeRequested',
     onLogs: async (logs) => {
       for (const log of logs) {
-        const request = {
-          requestId: log.args.requestId,
-          sourceChainId: log.args.sourceChainId,
-          destChainId: log.args.destChainId,
+        // Convert assetId from bytes32 to string
+        const assetId = getAssetNameFromBytes32(log.args.assetId);
+
+        const bridgeRequest = {
+          bridgeId: log.args.bridgeId,
+          assetId: assetId,
+          fromChainId: log.args.fromChainId,
+          toChainId: log.args.toChainId,
           requester: log.args.requester,
           recipient: log.args.recipient,
           amount: log.args.amount,
-          ethFee: log.args.ethFeeWei,
-          nonce: log.args.nonce,
           blockNumber: log.blockNumber,
           txHash: log.transactionHash,
         };
@@ -373,14 +281,14 @@ async function watchChain(clients, chain) {
         // Wait for confirmations
         const currentBlock = await chain.public.getBlockNumber();
         const confirmations = currentBlock - log.blockNumber;
-        
+
         if (confirmations >= chain.config.confirmations) {
-          await processRequest(clients, request);
+          await processBridgeRequest(clients, bridgeRequest);
         } else {
           console.log(`Waiting for ${Number(chain.config.confirmations) - Number(confirmations)} more confirmations...`);
           // Schedule recheck
           setTimeout(async () => {
-            await processRequest(clients, request);
+            await processBridgeRequest(clients, bridgeRequest);
           }, (Number(chain.config.confirmations) - Number(confirmations)) * 2000);
         }
       }
@@ -393,9 +301,9 @@ async function watchChain(clients, chain) {
   return unwatch;
 }
 
-// Process historical pending requests
+// Process historical bridge requests
 async function processHistoricalRequests(clients, chain) {
-  console.log(`Checking historical requests on ${chain.config.name}...`);
+  console.log(`Checking historical bridge requests on ${chain.config.name}...`);
 
   try {
     // Get recent BridgeRequested events
@@ -404,42 +312,44 @@ async function processHistoricalRequests(clients, chain) {
 
     const logs = await chain.public.getLogs({
       address: chain.config.bridgeAddress,
-      event: parseAbiItem('event BridgeRequested(bytes32 indexed requestId, uint256 indexed sourceChainId, uint256 indexed destChainId, address requester, address recipient, uint256 amount, uint256 ethFeeWei, uint256 nonce)'),
+      event: parseAbiItem('event BridgeRequested(bytes32 indexed bridgeId, bytes32 indexed assetId, uint256 indexed fromChainId, uint256 toChainId, address requester, address recipient, uint256 amount)'),
       fromBlock: fromBlock > 0n ? fromBlock : 0n,
       toBlock: currentBlock,
     });
 
-    console.log(`Found ${logs.length} historical requests`);
+    console.log(`Found ${logs.length} historical bridge requests`);
 
     for (const log of logs) {
-      const request = {
-        requestId: log.args.requestId,
-        sourceChainId: log.args.sourceChainId,
-        destChainId: log.args.destChainId,
+      // Convert assetId from bytes32 to string
+      const assetId = getAssetNameFromBytes32(log.args.assetId);
+
+      const bridgeRequest = {
+        bridgeId: log.args.bridgeId,
+        assetId: assetId,
+        fromChainId: log.args.fromChainId,
+        toChainId: log.args.toChainId,
         requester: log.args.requester,
         recipient: log.args.recipient,
         amount: log.args.amount,
-        ethFee: log.args.ethFeeWei,
-        nonce: log.args.nonce,
         blockNumber: log.blockNumber,
         txHash: log.transactionHash,
       };
 
-      // Check if pending
-      const sourceProcessed = await isRequestProcessedOnSource(clients, request.sourceChainId, request.requestId);
-      if (!sourceProcessed) {
-        await processRequest(clients, request);
+      // Check if already fulfilled
+      const alreadyProcessed = await isBridgeProcessed(clients, bridgeRequest.toChainId, bridgeRequest.bridgeId);
+      if (!alreadyProcessed) {
+        await processBridgeRequest(clients, bridgeRequest);
       }
     }
   } catch (error) {
-    console.error(`Error processing historical requests: ${error.message}`);
+    console.error(`Error processing historical bridge requests: ${error.message}`);
   }
 }
 
 // Main function
 async function main() {
   console.log('========================================');
-  console.log('MoonBridge Relayer Starting...');
+  console.log('MoonBridge V2 Relayer Starting...');
   console.log('========================================');
 
   // Validate environment
@@ -447,10 +357,12 @@ async function main() {
     'RELAYER_PRIVATE_KEY',
     'ARBITRUM_NOVA_RPC_URL',
     'ARBITRUM_ONE_RPC_URL',
+    'ETHEREUM_RPC_URL',
+    'GNOSIS_RPC_URL',
     'BRIDGE_NOVA_ADDRESS',
     'BRIDGE_ONE_ADDRESS',
-    'MOON_TOKEN_NOVA',
-    'MOON_TOKEN_ONE',
+    'BRIDGE_ETHEREUM_ADDRESS',
+    'BRIDGE_GNOSIS_ADDRESS',
   ];
 
   for (const envVar of requiredEnvVars) {
@@ -462,45 +374,59 @@ async function main() {
   // Initialize clients
   const clients = initializeClients();
 
-  // Check relayer balances
+  // Check relayer balances on all chains
   console.log('\nChecking relayer balances...');
-  
-  const novaBalance = await clients.nova.public.getBalance({
-    address: clients.account.address,
-  });
-  console.log(`Nova ETH Balance: ${formatEther(novaBalance)} ETH`);
 
-  const oneBalance = await clients.one.public.getBalance({
-    address: clients.account.address,
-  });
-  console.log(`One ETH Balance: ${formatEther(oneBalance)} ETH`);
+  const chainConfigs = getAllChainConfigs();
+  for (const config of chainConfigs) {
+    const client = clients[config.chainId];
+    const balance = await client.public.getBalance({
+      address: clients.account.address,
+    });
+    console.log(`${config.name} ETH Balance: ${formatEther(balance)} ETH`);
+  }
 
-  // Check bridge liquidity
+  // Check bridge liquidity for each asset on each chain
   console.log('\nChecking bridge liquidity...');
-  
-  const novaLiquidity = await getDestinationLiquidity(clients, 42170n);
-  console.log(`Nova Bridge Liquidity: ${formatEther(novaLiquidity)} MOON`);
 
-  const oneLiquidity = await getDestinationLiquidity(clients, 42161n);
-  console.log(`One Bridge Liquidity: ${formatEther(oneLiquidity)} MOON`);
+  for (const config of chainConfigs) {
+    console.log(`\n${config.name}:`);
+    for (const [assetName, asset] of Object.entries(ASSETS)) {
+      // Skip if asset not available on this chain
+      if (!asset.addresses[config.chainId]) {
+        continue;
+      }
 
-  // Process historical requests first
-  await processHistoricalRequests(clients, clients.nova);
-  await processHistoricalRequests(clients, clients.one);
+      try {
+        const liquidity = await getDestinationLiquidity(clients, config.chainId, assetName);
+        console.log(`  ${assetName}: ${formatEther(liquidity)}`);
+      } catch (error) {
+        console.log(`  ${assetName}: Error - ${error.message}`);
+      }
+    }
+  }
 
-  // Start watching both chains
+  // Process historical requests for all chains
+  console.log('\nProcessing historical bridge requests...');
+  for (const config of chainConfigs) {
+    await processHistoricalRequests(clients, clients[config.chainId]);
+  }
+
+  // Start watching all chains
   console.log('\nStarting event watchers...');
-  
-  const unwatchNova = await watchChain(clients, clients.nova);
-  const unwatchOne = await watchChain(clients, clients.one);
 
-  console.log('\nRelayer running. Press Ctrl+C to stop.');
+  const unwatchers = [];
+  for (const config of chainConfigs) {
+    const unwatch = await watchChain(clients, clients[config.chainId]);
+    unwatchers.push(unwatch);
+  }
+
+  console.log('\nRelayer running on 4 chains. Press Ctrl+C to stop.');
 
   // Handle shutdown
   process.on('SIGINT', () => {
     console.log('\nShutting down...');
-    unwatchNova();
-    unwatchOne();
+    unwatchers.forEach(unwatch => unwatch());
     process.exit(0);
   });
 

@@ -1,57 +1,63 @@
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, useBalance } from 'wagmi';
 import { type Address } from 'viem';
-import { BRIDGE_ABI, ERC20_ABI, CONTRACTS, getDestinationChainId } from '@/config';
+import {
+  BRIDGE_ABI,
+  ERC20_ABI,
+  LP_TOKEN_ABI,
+  BRIDGE_ADDRESSES,
+  ASSETS,
+  getAssetAddress,
+  isNativeETH,
+  assetIdToBytes32,
+} from '@/config';
 
-export function useBridge(sourceChainId: number) {
+// Hook for bridging assets
+export function useBridge(chainId: number, assetId: string) {
   const { address } = useAccount();
-  const destChainId = getDestinationChainId(sourceChainId);
-  
-  const sourceContracts = CONTRACTS[sourceChainId as keyof typeof CONTRACTS];
-  const destContracts = CONTRACTS[destChainId as keyof typeof CONTRACTS];
+  const bridgeAddress = BRIDGE_ADDRESSES[chainId as keyof typeof BRIDGE_ADDRESSES];
+  const assetAddress = getAssetAddress(assetId, chainId);
+  const assetBytes32 = assetIdToBytes32(assetId);
+  const isNative = isNativeETH(assetAddress);
 
-  const { data: moonBalance, refetch: refetchBalance } = useReadContract({
-    address: sourceContracts?.moonToken,
+  // Asset balance (ERC20 or native ETH)
+  const { data: erc20Balance, refetch: refetchERC20Balance } = useReadContract({
+    address: assetAddress || undefined,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: address ? [address] : undefined,
-    query: { enabled: !!address && !!sourceContracts?.moonToken },
+    query: { enabled: !!address && !!assetAddress && !isNative },
   });
 
+  const { data: nativeBalance, refetch: refetchNativeBalance } = useBalance({
+    address: address,
+    chainId: chainId,
+    query: { enabled: !!address && isNative },
+  });
+
+  // Asset allowance (for ERC20 tokens only)
   const { data: allowance, refetch: refetchAllowance } = useReadContract({
-    address: sourceContracts?.moonToken,
+    address: assetAddress || undefined,
     abi: ERC20_ABI,
     functionName: 'allowance',
-    args: address && sourceContracts?.bridge ? [address, sourceContracts.bridge] : undefined,
-    query: { enabled: !!address && !!sourceContracts?.moonToken && !!sourceContracts?.bridge },
+    args: address && bridgeAddress ? [address, bridgeAddress] : undefined,
+    query: { enabled: !!address && !!assetAddress && !!bridgeAddress && !isNative },
   });
 
-  const { data: relayerFee } = useReadContract({
-    address: sourceContracts?.bridge,
+  // Available liquidity on this chain
+  const { data: liquidity, refetch: refetchLiquidity } = useReadContract({
+    address: bridgeAddress,
     abi: BRIDGE_ABI,
-    functionName: 'relayerFeeWei',
-    query: { enabled: !!sourceContracts?.bridge },
+    functionName: 'getAvailableLiquidity',
+    args: [assetBytes32],
+    chainId: chainId,
+    query: { enabled: !!bridgeAddress },
   });
 
-  const { data: isPaused } = useReadContract({
-    address: sourceContracts?.bridge,
-    abi: BRIDGE_ABI,
-    functionName: 'paused',
-    query: { enabled: !!sourceContracts?.bridge },
-  });
-
-  const { data: destLiquidity, refetch: refetchLiquidity } = useReadContract({
-    address: destContracts?.moonToken,
-    abi: ERC20_ABI,
-    functionName: 'balanceOf',
-    args: destContracts?.bridge ? [destContracts.bridge] : undefined,
-    chainId: destChainId,
-    query: { enabled: !!destContracts?.bridge && !!destContracts?.moonToken },
-  });
-
+  // Write contracts
   const { writeContract: writeApprove, data: approveHash, isPending: isApproving } = useWriteContract();
   const { writeContract: writeBridge, data: bridgeHash, isPending: isBridging } = useWriteContract();
-  const { writeContract: writeCancel, data: cancelHash, isPending: isCancelling } = useWriteContract();
 
+  // Transaction confirmations
   const { isLoading: isApproveConfirming, isSuccess: isApproveSuccess } = useWaitForTransactionReceipt({
     hash: approveHash,
   });
@@ -60,62 +66,247 @@ export function useBridge(sourceChainId: number) {
     hash: bridgeHash,
   });
 
-  const { isLoading: isCancelConfirming, isSuccess: isCancelSuccess } = useWaitForTransactionReceipt({
-    hash: cancelHash,
-  });
-
-  const approve = async () => {
-    if (!sourceContracts?.moonToken || !sourceContracts?.bridge) return;
-    const maxUint256 = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+  // Approve token spending
+  const approve = async (amount?: bigint) => {
+    if (!assetAddress || !bridgeAddress || isNative) return;
+    const approveAmount = amount || BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     writeApprove({
-      address: sourceContracts.moonToken,
+      address: assetAddress,
       abi: ERC20_ABI,
       functionName: 'approve',
-      args: [sourceContracts.bridge, maxUint256],
+      args: [bridgeAddress, approveAmount],
     });
   };
 
-  const requestBridge = async (amount: bigint, recipient: Address) => {
-    if (!sourceContracts?.bridge || !relayerFee) return;
+  // Request bridge transfer
+  const requestBridge = async (amount: bigint, toChainId: number, recipient: Address) => {
+    if (!bridgeAddress) return;
     writeBridge({
-      address: sourceContracts.bridge,
+      address: bridgeAddress,
       abi: BRIDGE_ABI,
       functionName: 'requestBridge',
-      args: [amount, BigInt(destChainId), recipient],
-      value: relayerFee as bigint,
+      args: [assetBytes32, amount, BigInt(toChainId), recipient],
+      value: isNative ? amount : undefined,
     });
   };
 
-  const cancelRequest = async (requestId: `0x${string}`) => {
-    if (!sourceContracts?.bridge) return;
-    writeCancel({
-      address: sourceContracts.bridge,
-      abi: BRIDGE_ABI,
-      functionName: 'cancelRequest',
-      args: [requestId],
-    });
-  };
+  const assetBalance = isNative ? nativeBalance?.value : erc20Balance;
+  const refetchBalance = isNative ? refetchNativeBalance : refetchERC20Balance;
 
   return {
-    moonBalance: moonBalance as bigint | undefined,
+    assetBalance: assetBalance as bigint | undefined,
     allowance: allowance as bigint | undefined,
-    relayerFee: relayerFee as bigint | undefined,
-    destLiquidity: destLiquidity as bigint | undefined,
-    isPaused: isPaused as boolean | undefined,
+    liquidity: liquidity as bigint | undefined,
     approve,
     requestBridge,
-    cancelRequest,
     refetchBalance,
     refetchAllowance,
     refetchLiquidity,
     isApproving: isApproving || isApproveConfirming,
     isBridging: isBridging || isBridgeConfirming,
-    isCancelling: isCancelling || isCancelConfirming,
     isApproveSuccess,
     isBridgeSuccess,
-    isCancelSuccess,
     approveHash,
     bridgeHash,
-    cancelHash,
+    isNativeAsset: isNative,
+  };
+}
+
+// Hook for LP operations
+export function useLiquidity(chainId: number, assetId: string) {
+  const { address } = useAccount();
+  const bridgeAddress = BRIDGE_ADDRESSES[chainId as keyof typeof BRIDGE_ADDRESSES];
+  const assetAddress = getAssetAddress(assetId, chainId);
+  const assetBytes32 = assetIdToBytes32(assetId);
+  const isNative = isNativeETH(assetAddress);
+
+  // Get LP token address from asset config
+  const { data: assetConfig } = useReadContract({
+    address: bridgeAddress,
+    abi: BRIDGE_ABI,
+    functionName: 'assetConfigs',
+    args: [assetBytes32],
+    query: { enabled: !!bridgeAddress },
+  });
+
+  const lpTokenAddress = assetConfig ? (assetConfig as any)[1] : undefined;
+
+  // LP token balance
+  const { data: lpBalance, refetch: refetchLPBalance } = useReadContract({
+    address: lpTokenAddress,
+    abi: LP_TOKEN_ABI,
+    functionName: 'balanceOf',
+    args: address ? [address] : undefined,
+    query: { enabled: !!address && !!lpTokenAddress },
+  });
+
+  // LP token total supply
+  const { data: lpTotalSupply } = useReadContract({
+    address: lpTokenAddress,
+    abi: LP_TOKEN_ABI,
+    functionName: 'totalSupply',
+    query: { enabled: !!lpTokenAddress },
+  });
+
+  // Asset balance (for deposits)
+  const { data: erc20Balance, refetch: refetchERC20Balance } = useReadContract({
+    address: assetAddress || undefined,
+    abi: ERC20_ABI,
+    functionName: 'balanceOf',
+    args: address ? [address] : undefined,
+    query: { enabled: !!address && !!assetAddress && !isNative },
+  });
+
+  const { data: nativeBalance, refetch: refetchNativeBalance } = useBalance({
+    address: address,
+    chainId: chainId,
+    query: { enabled: !!address && isNative },
+  });
+
+  // Asset allowance (for ERC20 deposits)
+  const { data: allowance, refetch: refetchAllowance } = useReadContract({
+    address: assetAddress || undefined,
+    abi: ERC20_ABI,
+    functionName: 'allowance',
+    args: address && bridgeAddress ? [address, bridgeAddress] : undefined,
+    query: { enabled: !!address && !!assetAddress && !!bridgeAddress && !isNative },
+  });
+
+  // LP token allowance (for withdrawals)
+  const { data: lpAllowance, refetch: refetchLPAllowance } = useReadContract({
+    address: lpTokenAddress,
+    abi: LP_TOKEN_ABI,
+    functionName: 'allowance',
+    args: address && bridgeAddress ? [address, bridgeAddress] : undefined,
+    query: { enabled: !!address && !!lpTokenAddress && !!bridgeAddress },
+  });
+
+  // Available liquidity in pool
+  const { data: poolLiquidity, refetch: refetchPoolLiquidity } = useReadContract({
+    address: bridgeAddress,
+    abi: BRIDGE_ABI,
+    functionName: 'getAvailableLiquidity',
+    args: [assetBytes32],
+    query: { enabled: !!bridgeAddress },
+  });
+
+  // Write contracts
+  const { writeContract: writeApprove, data: approveHash, isPending: isApproving } = useWriteContract();
+  const { writeContract: writeApproveLPToken, data: approveLPHash, isPending: isApprovingLP } = useWriteContract();
+  const { writeContract: writeDeposit, data: depositHash, isPending: isDepositing } = useWriteContract();
+  const { writeContract: writeWithdraw, data: withdrawHash, isPending: isWithdrawing } = useWriteContract();
+
+  // Transaction confirmations
+  const { isLoading: isApproveConfirming, isSuccess: isApproveSuccess } = useWaitForTransactionReceipt({
+    hash: approveHash,
+  });
+
+  const { isLoading: isApproveLPConfirming, isSuccess: isApproveLPSuccess } = useWaitForTransactionReceipt({
+    hash: approveLPHash,
+  });
+
+  const { isLoading: isDepositConfirming, isSuccess: isDepositSuccess } = useWaitForTransactionReceipt({
+    hash: depositHash,
+  });
+
+  const { isLoading: isWithdrawConfirming, isSuccess: isWithdrawSuccess } = useWaitForTransactionReceipt({
+    hash: withdrawHash,
+  });
+
+  // Approve asset for deposit
+  const approveAsset = async (amount?: bigint) => {
+    if (!assetAddress || !bridgeAddress || isNative) return;
+    const approveAmount = amount || BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    writeApprove({
+      address: assetAddress,
+      abi: ERC20_ABI,
+      functionName: 'approve',
+      args: [bridgeAddress, approveAmount],
+    });
+  };
+
+  // Approve LP tokens for withdrawal
+  const approveLPToken = async (amount?: bigint) => {
+    if (!lpTokenAddress || !bridgeAddress) return;
+    const approveAmount = amount || BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    writeApproveLPToken({
+      address: lpTokenAddress,
+      abi: LP_TOKEN_ABI,
+      functionName: 'approve',
+      args: [bridgeAddress, approveAmount],
+    });
+  };
+
+  // Deposit liquidity
+  const deposit = async (amount: bigint) => {
+    if (!bridgeAddress) return;
+    writeDeposit({
+      address: bridgeAddress,
+      abi: BRIDGE_ABI,
+      functionName: 'deposit',
+      args: [assetBytes32, amount],
+      value: isNative ? amount : undefined,
+    });
+  };
+
+  // Withdraw liquidity
+  const withdraw = async (lpTokenAmount: bigint) => {
+    if (!bridgeAddress) return;
+    writeWithdraw({
+      address: bridgeAddress,
+      abi: BRIDGE_ABI,
+      functionName: 'withdraw',
+      args: [assetBytes32, lpTokenAmount],
+    });
+  };
+
+  const assetBalance = isNative ? nativeBalance?.value : erc20Balance;
+  const refetchAssetBalance = isNative ? refetchNativeBalance : refetchERC20Balance;
+
+  return {
+    // Balances
+    assetBalance: assetBalance as bigint | undefined,
+    lpBalance: lpBalance as bigint | undefined,
+    lpTotalSupply: lpTotalSupply as bigint | undefined,
+    poolLiquidity: poolLiquidity as bigint | undefined,
+
+    // Allowances
+    allowance: allowance as bigint | undefined,
+    lpAllowance: lpAllowance as bigint | undefined,
+
+    // Actions
+    approveAsset,
+    approveLPToken,
+    deposit,
+    withdraw,
+
+    // Refetch functions
+    refetchAssetBalance,
+    refetchLPBalance,
+    refetchAllowance,
+    refetchLPAllowance,
+    refetchPoolLiquidity,
+
+    // Loading states
+    isApproving: isApproving || isApproveConfirming,
+    isApprovingLP: isApprovingLP || isApproveLPConfirming,
+    isDepositing: isDepositing || isDepositConfirming,
+    isWithdrawing: isWithdrawing || isWithdrawConfirming,
+
+    // Success states
+    isApproveSuccess,
+    isApproveLPSuccess,
+    isDepositSuccess,
+    isWithdrawSuccess,
+
+    // Transaction hashes
+    approveHash,
+    approveLPHash,
+    depositHash,
+    withdrawHash,
+
+    // Other
+    lpTokenAddress,
+    isNativeAsset: isNative,
   };
 }

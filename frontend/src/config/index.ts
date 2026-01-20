@@ -1,22 +1,83 @@
-import { arbitrum, arbitrumNova } from 'viem/chains';
+import { arbitrum, arbitrumNova, mainnet, gnosis } from 'viem/chains';
 import type { Address } from 'viem';
 
 // Chain IDs
 export const CHAIN_IDS = {
   ARBITRUM_NOVA: 42170,
   ARBITRUM_ONE: 42161,
+  ETHEREUM: 1,
+  GNOSIS: 100,
 } as const;
 
-// Contract addresses - UPDATE AFTER DEPLOYMENT
-export const CONTRACTS = {
-  [CHAIN_IDS.ARBITRUM_NOVA]: {
-    bridge: '0x2a0a8e54162341Fc16233B35BDC539f51939716f' as Address,
-    moonToken: '0x0057Ac2d777797d31CD3f8f13bF5e927571D6Ad0' as Address,
+// Asset IDs
+export const ASSET_IDS = {
+  MOON: 'MOON',
+  ETH: 'ETH',
+  USDC: 'USDC',
+  DONUT: 'DONUT',
+} as const;
+
+// Native ETH sentinel address
+export const NATIVE_ETH_SENTINEL = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE' as Address;
+
+// Asset configuration
+export const ASSETS = {
+  [ASSET_IDS.MOON]: {
+    id: ASSET_IDS.MOON,
+    name: 'Moon',
+    symbol: 'MOON',
+    decimals: 18,
+    addresses: {
+      [CHAIN_IDS.ARBITRUM_NOVA]: '0x0057Ac2d777797d31CD3f8f13bF5e927571D6Ad0' as Address,
+      [CHAIN_IDS.ARBITRUM_ONE]: '0x24404DC041d74cd03cFE28855F555559390C931b' as Address,
+      [CHAIN_IDS.ETHEREUM]: '0xb2490e357980cE57bF5745e181e537a64Eb367B1' as Address,
+      [CHAIN_IDS.GNOSIS]: null,
+    },
   },
-  [CHAIN_IDS.ARBITRUM_ONE]: {
-    bridge: '0x2a0a8e54162341Fc16233B35BDC539f51939716f' as Address,
-    moonToken: '0x24404DC041d74cd03cFE28855F555559390C931b' as Address,
+  [ASSET_IDS.ETH]: {
+    id: ASSET_IDS.ETH,
+    name: 'Ethereum',
+    symbol: 'ETH',
+    decimals: 18,
+    addresses: {
+      [CHAIN_IDS.ARBITRUM_NOVA]: NATIVE_ETH_SENTINEL,
+      [CHAIN_IDS.ARBITRUM_ONE]: NATIVE_ETH_SENTINEL,
+      [CHAIN_IDS.ETHEREUM]: NATIVE_ETH_SENTINEL,
+      [CHAIN_IDS.GNOSIS]: '0x6A023CCd1ff6F2045C3309768eAD9E68F978f6e1' as Address, // WETH
+    },
   },
+  [ASSET_IDS.USDC]: {
+    id: ASSET_IDS.USDC,
+    name: 'USD Coin',
+    symbol: 'USDC',
+    decimals: 6,
+    addresses: {
+      [CHAIN_IDS.ARBITRUM_NOVA]: '0x750ba8b76187092b0d1e87e28daaf484d1b5273b' as Address,
+      [CHAIN_IDS.ARBITRUM_ONE]: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831' as Address,
+      [CHAIN_IDS.ETHEREUM]: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' as Address,
+      [CHAIN_IDS.GNOSIS]: '0xDDAfbb505ad214D7b80b1f830fcCc89B60fb7A83' as Address,
+    },
+  },
+  [ASSET_IDS.DONUT]: {
+    id: ASSET_IDS.DONUT,
+    name: 'Donut',
+    symbol: 'DONUT',
+    decimals: 18,
+    addresses: {
+      [CHAIN_IDS.ARBITRUM_NOVA]: null,
+      [CHAIN_IDS.ARBITRUM_ONE]: '0xF42e2B8bc2aF8B110b65be98dB1321B1ab8D44f5' as Address,
+      [CHAIN_IDS.ETHEREUM]: '0xC0F9bD5Fa5698B6505F643900FFA515Ea5dF54A9' as Address,
+      [CHAIN_IDS.GNOSIS]: '0x524B969793a64a602342d89BC2789D43a016B13A' as Address,
+    },
+  },
+} as const;
+
+// BridgeV2 contract addresses - UPDATE AFTER DEPLOYMENT
+export const BRIDGE_ADDRESSES = {
+  [CHAIN_IDS.ARBITRUM_NOVA]: '0x...' as Address,
+  [CHAIN_IDS.ARBITRUM_ONE]: '0x...' as Address,
+  [CHAIN_IDS.ETHEREUM]: '0x...' as Address,
+  [CHAIN_IDS.GNOSIS]: '0x...' as Address,
 } as const;
 
 // Chain metadata
@@ -35,125 +96,197 @@ export const CHAIN_META = {
     chain: arbitrum,
     explorer: 'https://arbiscan.io',
   },
+  [CHAIN_IDS.ETHEREUM]: {
+    id: CHAIN_IDS.ETHEREUM,
+    name: 'Ethereum',
+    shortName: 'Ethereum',
+    chain: mainnet,
+    explorer: 'https://etherscan.io',
+  },
+  [CHAIN_IDS.GNOSIS]: {
+    id: CHAIN_IDS.GNOSIS,
+    name: 'Gnosis',
+    shortName: 'Gnosis',
+    chain: gnosis,
+    explorer: 'https://gnosisscan.io',
+  },
 } as const;
 
-// Get destination chain ID
-export function getDestinationChainId(sourceChainId: number): number {
-  return sourceChainId === CHAIN_IDS.ARBITRUM_NOVA
-    ? CHAIN_IDS.ARBITRUM_ONE
-    : CHAIN_IDS.ARBITRUM_NOVA;
+// Helper functions
+export function getAssetAddress(assetId: string, chainId: number): Address | null {
+  const asset = ASSETS[assetId as keyof typeof ASSETS];
+  if (!asset) return null;
+  return asset.addresses[chainId as keyof typeof asset.addresses] || null;
 }
 
-// Fee constants
+export function isNativeETH(address: Address | null): boolean {
+  return address?.toLowerCase() === NATIVE_ETH_SENTINEL.toLowerCase();
+}
+
+export function assetIdToBytes32(assetId: string): `0x${string}` {
+  const bytes = new TextEncoder().encode(assetId);
+  const hex = '0x' + Array.from(bytes)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+    .padEnd(64, '0');
+  return hex as `0x${string}`;
+}
+
+export function getAvailableAssets(chainId: number): string[] {
+  return Object.keys(ASSETS).filter(assetId => {
+    const address = getAssetAddress(assetId, chainId);
+    return address !== null;
+  });
+}
+
+export function getAvailableDestinations(sourceChainId: number, assetId: string): number[] {
+  const asset = ASSETS[assetId as keyof typeof ASSETS];
+  if (!asset) return [];
+
+  return Object.entries(asset.addresses)
+    .filter(([chainId, address]) => {
+      const id = Number(chainId);
+      return id !== sourceChainId && address !== null;
+    })
+    .map(([chainId]) => Number(chainId));
+}
+
+// Fee constants for V2
 export const FEES = {
-  FULFILL_FEE_BPS: 100n,
-  REFUND_FEE_BPS: 100n,
-  MAX_REFUND_FEE: BigInt(100) * BigInt(10 ** 18),
+  TOTAL_FEE_BPS: 100n, // 1% total fee
+  LP_FEE_BPS: 80n, // 0.8% to LPs
+  DAO_FEE_BPS: 20n, // 0.2% to DAO
   BPS_DENOMINATOR: 10000n,
 } as const;
 
-// Calculate fees
-export function calculateFees(amount: bigint, destinationLiquidity: bigint) {
-  const fulfillAmount = amount <= destinationLiquidity ? amount : destinationLiquidity;
-  const refundAmount = amount - fulfillAmount;
-  const fulfillFee = (fulfillAmount * FEES.FULFILL_FEE_BPS) / FEES.BPS_DENOMINATOR;
-  let refundFee = (refundAmount * FEES.REFUND_FEE_BPS) / FEES.BPS_DENOMINATOR;
-  if (refundFee > FEES.MAX_REFUND_FEE) refundFee = FEES.MAX_REFUND_FEE;
+// Calculate fees for V2
+export function calculateFees(amount: bigint) {
+  const totalFee = (amount * FEES.TOTAL_FEE_BPS) / FEES.BPS_DENOMINATOR;
+  const lpFee = (amount * FEES.LP_FEE_BPS) / FEES.BPS_DENOMINATOR;
+  const daoFee = (amount * FEES.DAO_FEE_BPS) / FEES.BPS_DENOMINATOR;
+  const recipientReceives = amount - totalFee;
+
   return {
-    fulfillAmount,
-    refundAmount,
-    fulfillFee,
-    refundFee,
-    recipientReceives: fulfillAmount - fulfillFee,
-    requesterRefund: refundAmount - refundFee,
+    totalFee,
+    lpFee,
+    daoFee,
+    recipientReceives,
   };
 }
 
-// Bridge ABI
+// BridgeV2 ABI
 export const BRIDGE_ABI = [
+  // User functions
   {
     type: 'function',
     name: 'requestBridge',
     stateMutability: 'payable',
     inputs: [
+      { name: 'assetId', type: 'bytes32' },
       { name: 'amount', type: 'uint256' },
-      { name: 'destChainId', type: 'uint256' },
+      { name: 'toChainId', type: 'uint256' },
       { name: 'recipient', type: 'address' },
     ],
-    outputs: [{ name: 'requestId', type: 'bytes32' }],
+    outputs: [{ name: 'bridgeId', type: 'bytes32' }],
   },
   {
     type: 'function',
-    name: 'cancelRequest',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'requestId', type: 'bytes32' }],
+    name: 'deposit',
+    stateMutability: 'payable',
+    inputs: [
+      { name: 'assetId', type: 'bytes32' },
+      { name: 'amount', type: 'uint256' },
+    ],
     outputs: [],
   },
   {
     type: 'function',
+    name: 'withdraw',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'assetId', type: 'bytes32' },
+      { name: 'lpTokenAmount', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  // View functions
+  {
+    type: 'function',
     name: 'getAvailableLiquidity',
     stateMutability: 'view',
-    inputs: [],
+    inputs: [{ name: 'assetId', type: 'bytes32' }],
     outputs: [{ name: '', type: 'uint256' }],
   },
   {
     type: 'function',
-    name: 'relayerFeeWei',
+    name: 'processedBridges',
     stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    type: 'function',
-    name: 'paused',
-    stateMutability: 'view',
-    inputs: [],
+    inputs: [{ name: 'bridgeId', type: 'bytes32' }],
     outputs: [{ name: '', type: 'bool' }],
   },
   {
     type: 'function',
-    name: 'getRequest',
+    name: 'assetConfigs',
     stateMutability: 'view',
-    inputs: [{ name: 'requestId', type: 'bytes32' }],
+    inputs: [{ name: 'assetId', type: 'bytes32' }],
     outputs: [
       {
-        name: 'request',
+        name: '',
         type: 'tuple',
         components: [
-          { name: 'sourceChainId', type: 'uint256' },
-          { name: 'destChainId', type: 'uint256' },
-          { name: 'requester', type: 'address' },
-          { name: 'recipient', type: 'address' },
-          { name: 'amount', type: 'uint256' },
-          { name: 'ethFee', type: 'uint256' },
-          { name: 'nonce', type: 'uint256' },
-          { name: 'fulfilledAmount', type: 'uint256' },
-          { name: 'refundedAmount', type: 'uint256' },
-          { name: 'ethFeePaid', type: 'bool' },
+          { name: 'tokenAddress', type: 'address' },
+          { name: 'lpToken', type: 'address' },
+          { name: 'enabled', type: 'bool' },
+          { name: 'minBridgeAmount', type: 'uint256' },
+          { name: 'maxBridgeAmount', type: 'uint256' },
         ],
       },
-      { name: 'status', type: 'uint8' },
     ],
   },
-  {
-    type: 'function',
-    name: 'requestStatus',
-    stateMutability: 'view',
-    inputs: [{ name: 'requestId', type: 'bytes32' }],
-    outputs: [{ name: '', type: 'uint8' }],
-  },
+  // Events
   {
     type: 'event',
     name: 'BridgeRequested',
     inputs: [
-      { name: 'requestId', type: 'bytes32', indexed: true },
-      { name: 'sourceChainId', type: 'uint256', indexed: true },
-      { name: 'destChainId', type: 'uint256', indexed: true },
+      { name: 'bridgeId', type: 'bytes32', indexed: true },
+      { name: 'assetId', type: 'bytes32', indexed: true },
+      { name: 'fromChainId', type: 'uint256', indexed: true },
+      { name: 'toChainId', type: 'uint256', indexed: false },
       { name: 'requester', type: 'address', indexed: false },
       { name: 'recipient', type: 'address', indexed: false },
       { name: 'amount', type: 'uint256', indexed: false },
-      { name: 'ethFeeWei', type: 'uint256', indexed: false },
-      { name: 'nonce', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'BridgeFulfilled',
+    inputs: [
+      { name: 'bridgeId', type: 'bytes32', indexed: true },
+      { name: 'assetId', type: 'bytes32', indexed: true },
+      { name: 'recipient', type: 'address', indexed: false },
+      { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'relayer', type: 'address', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'LiquidityDeposited',
+    inputs: [
+      { name: 'assetId', type: 'bytes32', indexed: true },
+      { name: 'depositor', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'lpTokensMinted', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'LiquidityWithdrawn',
+    inputs: [
+      { name: 'assetId', type: 'bytes32', indexed: true },
+      { name: 'withdrawer', type: 'address', indexed: true },
+      { name: 'lpTokensBurned', type: 'uint256', indexed: false },
+      { name: 'amountReceived', type: 'uint256', indexed: false },
+      { name: 'amountQueued', type: 'uint256', indexed: false },
     ],
   },
 ] as const;
@@ -203,26 +336,40 @@ export const ERC20_ABI = [
   },
 ] as const;
 
-// Request status enum
-export enum RequestStatus {
-  None = 0,
-  Pending = 1,
-  Fulfilled = 2,
-  PartialFilled = 3,
-  Refunded = 4,
-  Completed = 5,
-  Cancelled = 6,
-}
-
-export function getStatusLabel(status: RequestStatus): string {
-  const labels: Record<RequestStatus, string> = {
-    [RequestStatus.None]: 'Unknown',
-    [RequestStatus.Pending]: 'Pending',
-    [RequestStatus.Fulfilled]: 'Fulfilled',
-    [RequestStatus.PartialFilled]: 'Partial Fill',
-    [RequestStatus.Refunded]: 'Refunded',
-    [RequestStatus.Completed]: 'Completed',
-    [RequestStatus.Cancelled]: 'Cancelled',
-  };
-  return labels[status] || 'Unknown';
-}
+// LP Token ABI (for reading LP balances and allowances)
+export const LP_TOKEN_ABI = [
+  {
+    type: 'function',
+    name: 'balanceOf',
+    stateMutability: 'view',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'allowance',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'spender', type: 'address' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'approve',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'spender', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+  {
+    type: 'function',
+    name: 'totalSupply',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+] as const;
