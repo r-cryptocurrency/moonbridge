@@ -9,6 +9,7 @@ import {
   getAssetAddress,
   isNativeETH,
   assetIdToBytes32,
+  getRelayerFee,
 } from '@/config';
 
 // Hook for bridging assets
@@ -81,12 +82,21 @@ export function useBridge(chainId: number, assetId: string) {
   // Request bridge transfer
   const requestBridge = async (amount: bigint, toChainId: number, recipient: Address) => {
     if (!bridgeAddress) return;
+
+    // Get relayer fee for current chain
+    const relayerFee = getRelayerFee(chainId);
+
+    // Calculate msg.value
+    // For native ETH: amount + relayerFee
+    // For ERC20: relayerFee only
+    const msgValue = isNative ? amount + relayerFee : relayerFee;
+
     writeBridge({
       address: bridgeAddress,
       abi: BRIDGE_ABI,
       functionName: 'requestBridge',
       args: [assetBytes32, amount, BigInt(toChainId), recipient],
-      value: isNative ? amount : undefined,
+      value: msgValue,
     });
   };
 

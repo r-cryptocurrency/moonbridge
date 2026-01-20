@@ -159,6 +159,19 @@ export const FEES = {
   BPS_DENOMINATOR: 10000n,
 } as const;
 
+// Relayer fees per chain (in wei/native token)
+export const RELAYER_FEES = {
+  [CHAIN_IDS.ARBITRUM_NOVA]: BigInt('100000000000000'), // 0.0001 ETH
+  [CHAIN_IDS.ARBITRUM_ONE]: BigInt('100000000000000'), // 0.0001 ETH
+  [CHAIN_IDS.ETHEREUM]: BigInt('1000000000000000'), // 0.001 ETH
+  [CHAIN_IDS.GNOSIS]: BigInt('300000000000000000'), // 0.3 xDAI
+} as const;
+
+// Get relayer fee for a chain
+export function getRelayerFee(chainId: number): bigint {
+  return RELAYER_FEES[chainId as keyof typeof RELAYER_FEES] || 0n;
+}
+
 // Calculate fees for V2
 export function calculateFees(amount: bigint) {
   const totalFee = (amount * FEES.TOTAL_FEE_BPS) / FEES.BPS_DENOMINATOR;
