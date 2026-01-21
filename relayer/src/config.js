@@ -152,9 +152,22 @@ export const BRIDGE_ABI = [
     inputs: [
       { name: 'bridgeId', type: 'bytes32', indexed: true },
       { name: 'assetId', type: 'bytes32', indexed: true },
-      { name: 'recipient', type: 'address', indexed: false },
-      { name: 'amount', type: 'uint256', indexed: false },
-      { name: 'relayer', type: 'address', indexed: false },
+      { name: 'recipient', type: 'address', indexed: true },
+      { name: 'fulfilledAmount', type: 'uint256', indexed: false },
+      { name: 'requestedAmount', type: 'uint256', indexed: false },
+      { name: 'fromChainId', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'PartialFillRefunded',
+    inputs: [
+      { name: 'bridgeId', type: 'bytes32', indexed: true },
+      { name: 'assetId', type: 'bytes32', indexed: true },
+      { name: 'sender', type: 'address', indexed: true },
+      { name: 'fulfilledAmount', type: 'uint256', indexed: false },
+      { name: 'refundAmount', type: 'uint256', indexed: false },
+      { name: 'refundFee', type: 'uint256', indexed: false },
     ],
   },
   {
@@ -224,6 +237,16 @@ export const BRIDGE_ABI = [
     inputs: [
       { name: 'assetId', type: 'bytes32' },
       { name: 'lpTokenAmount', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'processPartialFillRefund',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'bridgeId', type: 'bytes32' },
+      { name: 'fulfilledAmount', type: 'uint256' },
     ],
     outputs: [],
   },

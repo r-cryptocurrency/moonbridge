@@ -100,10 +100,10 @@ contract DeployBridgeV2 is Script {
         console2.log("=================================");
 
         console2.log("\nVerification commands:");
-        console2.log("forge verify-contract", address(lpTokenImpl), "src/LPToken.sol:LPToken");
-        console2.log("forge verify-contract", address(factory), "src/LPTokenFactory.sol:LPTokenFactory --constructor-args", abi.encode(address(lpTokenImpl)));
-        console2.log("forge verify-contract", address(bridgeImpl), "src/BridgeV2.sol:BridgeV2");
-        console2.log("forge verify-contract", address(proxy), "lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy --constructor-args", abi.encode(address(bridgeImpl), initData));
+        console2.log("forge verify-contract %s src/LPToken.sol:LPToken", address(lpTokenImpl));
+        console2.log("forge verify-contract %s src/LPTokenFactory.sol:LPTokenFactory", address(factory));
+        console2.log("forge verify-contract %s src/BridgeV2.sol:BridgeV2", address(bridgeImpl));
+        console2.log("forge verify-contract %s lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy", address(proxy));
     }
 }
 
@@ -148,7 +148,7 @@ contract ConfigureAssets is Script {
             // USDC
             bridge.addAsset(
                 BridgeTypes.ASSET_USDC,
-                0x750ba8b76187092b0d1e87e28daaf484d1b5273b,
+                0x750ba8b76187092B0D1E87E28daaf484d1b5273b,
                 "MoonBridge LP - USDC",
                 "mbUSDC"
             );

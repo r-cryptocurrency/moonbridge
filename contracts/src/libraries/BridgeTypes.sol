@@ -31,6 +31,10 @@ library BridgeTypes {
     uint16 constant TOTAL_FEE_BPS = 100; // 1%
     uint16 constant BPS_DENOMINATOR = 10000;
 
+    // Refund fee configuration for partial fills
+    uint16 constant MAX_REFUND_FEE_BPS = 100; // 1% max refund fee
+    uint256 constant MAX_REFUND_FEE_CAP = 100 ether; // Capped at 100 tokens
+
     // ============ Structs ============
 
     /// @notice Configuration for a supported asset
@@ -77,14 +81,19 @@ library BridgeTypes {
     /// @notice A pending bridge request (stored on source chain)
     struct BridgeRequest {
         bytes32 assetId; // Which asset is being bridged
-        address sender; // Who initiated the bridge
+        address sender; // Who initiated the bridge (for refunds)
         address recipient; // Who receives on destination
-        uint256 amount; // Amount being bridged (after fees)
+        uint256 originalAmount; // Full amount user sent
+        uint256 bridgeAmount; // Amount after initial fee (crosses chains)
+        uint256 bridgeFee; // Initial bridge fee taken
+        uint256 lpFee; // Portion to LP pool
+        uint256 daoFee; // Portion to DAO
+        uint256 fulfilledAmount; // Tracks how much was actually fulfilled
         uint256 toChainId; // Destination chain
-        uint256 relayerFee; // Relayer fee paid
+        uint256 relayerFee; // ETH relayer fee paid
         uint64 timestamp; // When request was created
         uint64 nonce; // Unique nonce for this request
-        bool fulfilled; // Whether the bridge was fulfilled
-        bool refunded; // Whether the request was refunded
+        bool fulfilled; // Whether fully fulfilled
+        bool refunded; // Whether refund was processed
     }
 }

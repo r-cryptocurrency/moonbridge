@@ -146,6 +146,17 @@ async function executeFulfillBridge(clients, bridgeRequest) {
     const assetAddress = getAssetAddress(bridgeRequest.assetId, bridgeRequest.toChainId);
     const isNativeAsset = isNativeETH(assetAddress);
 
+    // Check available liquidity
+    const availableLiquidity = await getDestinationLiquidity(clients, bridgeRequest.toChainId, bridgeRequest.assetId);
+    console.log(`  Available Liquidity: ${formatEther(availableLiquidity)}`);
+
+    // Determine amount to fulfill (partial fill support)
+    const amountToFulfill = availableLiquidity < bridgeRequest.amount ? availableLiquidity : bridgeRequest.amount;
+
+    if (amountToFulfill < bridgeRequest.amount) {
+      console.log(`  Partial fill: ${formatEther(amountToFulfill)} of ${formatEther(bridgeRequest.amount)}`);
+    }
+
     // For native ETH, we need to send ETH value
     const txOptions = {
       address: destClient.config.bridgeAddress,
@@ -155,14 +166,14 @@ async function executeFulfillBridge(clients, bridgeRequest) {
         bridgeRequest.bridgeId,
         assetIdBytes32,
         bridgeRequest.recipient,
-        bridgeRequest.amount,
+        bridgeRequest.amount, // Pass requested amount
         bridgeRequest.fromChainId,
       ],
       account: clients.account,
     };
 
     if (isNativeAsset) {
-      txOptions.value = bridgeRequest.amount;
+      txOptions.value = amountToFulfill; // Send actual available amount
     }
 
     const { request: txRequest } = await destClient.public.simulateContract(txOptions);
@@ -177,9 +188,69 @@ async function executeFulfillBridge(clients, bridgeRequest) {
     });
 
     console.log(`  FulfillBridge confirmed in block ${receipt.blockNumber}`);
-    return { success: true, hash, receipt };
+
+    // Parse the BridgeFulfilled event to get actual fulfilled amount
+    let fulfilledAmount = bridgeRequest.amount;
+    for (const log of receipt.logs) {
+      try {
+        const decoded = destClient.public.decodeEventLog({
+          abi: BRIDGE_ABI,
+          data: log.data,
+          topics: log.topics,
+        });
+        if (decoded.eventName === 'BridgeFulfilled') {
+          fulfilledAmount = decoded.args.fulfilledAmount;
+          console.log(`  Actual fulfilled amount from event: ${formatEther(fulfilledAmount)}`);
+          break;
+        }
+      } catch (e) {
+        // Not the event we're looking for
+      }
+    }
+
+    return { success: true, hash, receipt, fulfilledAmount };
   } catch (error) {
     console.error(`  FulfillBridge failed: ${error.message}`);
+    return { success: false, error };
+  }
+}
+
+// Execute processPartialFillRefund on source chain
+async function executePartialFillRefund(clients, bridgeRequest, fulfilledAmount) {
+  const sourceClient = getClientByChainId(clients, bridgeRequest.fromChainId);
+
+  console.log(`Executing processPartialFillRefund on ${sourceClient.config.name}...`);
+  console.log(`  Bridge ID: ${bridgeRequest.bridgeId}`);
+  console.log(`  Fulfilled Amount: ${formatEther(fulfilledAmount)}`);
+  console.log(`  Requested Amount: ${formatEther(bridgeRequest.amount)}`);
+
+  try {
+    const txOptions = {
+      address: sourceClient.config.bridgeAddress,
+      abi: BRIDGE_ABI,
+      functionName: 'processPartialFillRefund',
+      args: [
+        bridgeRequest.bridgeId,
+        fulfilledAmount,
+      ],
+      account: clients.account,
+    };
+
+    const { request: txRequest } = await sourceClient.public.simulateContract(txOptions);
+
+    const hash = await sourceClient.wallet.writeContract(txRequest);
+    console.log(`  ProcessPartialFillRefund TX: ${hash}`);
+
+    // Wait for confirmation
+    const receipt = await sourceClient.public.waitForTransactionReceipt({
+      hash,
+      confirmations: sourceClient.config.confirmations,
+    });
+
+    console.log(`  ProcessPartialFillRefund confirmed in block ${receipt.blockNumber}`);
+    return { success: true, hash, receipt };
+  } catch (error) {
+    console.error(`  ProcessPartialFillRefund failed: ${error.message}`);
     return { success: false, error };
   }
 }
@@ -222,15 +293,19 @@ async function processBridgeRequest(clients, bridgeRequest) {
     );
     console.log(`Destination Liquidity: ${formatEther(liquidity)} ${bridgeRequest.assetId}`);
 
-    // Check if we have enough liquidity
-    if (liquidity < bridgeRequest.amount) {
-      console.log(`Insufficient liquidity. Need ${formatEther(bridgeRequest.amount)}, have ${formatEther(liquidity)}`);
-      console.log('Skipping this bridge request. Will be queued for LPs to withdraw.');
-      processedRequests.set(requestKey, { status: 'insufficient_liquidity', timestamp: Date.now() });
+    // Check if we have any liquidity (now supports partial fills)
+    if (liquidity === 0n) {
+      console.log('No liquidity available. Skipping this bridge request.');
+      processedRequests.set(requestKey, { status: 'no_liquidity', timestamp: Date.now() });
       return;
     }
 
-    // Execute fulfill
+    // Partial fill warning
+    if (liquidity < bridgeRequest.amount) {
+      console.log(`Partial fill scenario: ${formatEther(liquidity)} available of ${formatEther(bridgeRequest.amount)} requested`);
+    }
+
+    // Execute fulfill (will handle partial fills)
     const fulfillResult = await executeFulfillBridge(clients, bridgeRequest);
     if (!fulfillResult.success) {
       // Check if it's because someone else fulfilled
@@ -241,6 +316,23 @@ async function processBridgeRequest(clients, bridgeRequest) {
         return;
       } else {
         throw new Error(`FulfillBridge failed: ${fulfillResult.error.message}`);
+      }
+    }
+
+    // Check if this was a partial fill
+    const fulfilledAmount = fulfillResult.fulfilledAmount || bridgeRequest.amount;
+    if (fulfilledAmount < bridgeRequest.amount) {
+      console.log(`Partial fill detected: ${formatEther(fulfilledAmount)} of ${formatEther(bridgeRequest.amount)}`);
+      console.log('Processing refund on source chain...');
+
+      // Process refund on source chain
+      const refundResult = await executePartialFillRefund(clients, bridgeRequest, fulfilledAmount);
+      if (!refundResult.success) {
+        console.error('Refund processing failed, but bridge was fulfilled');
+        // Note: Bridge is fulfilled, so we mark as completed even if refund fails
+        // The user can manually cancel if needed
+      } else {
+        console.log('Partial fill refund processed successfully!');
       }
     }
 

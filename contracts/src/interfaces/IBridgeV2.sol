@@ -63,8 +63,18 @@ interface IBridgeV2 {
         bytes32 indexed bridgeId,
         bytes32 indexed assetId,
         address indexed recipient,
-        uint256 amount,
+        uint256 fulfilledAmount,
+        uint256 requestedAmount,
         uint256 fromChainId
+    );
+
+    event PartialFillRefunded(
+        bytes32 indexed bridgeId,
+        bytes32 indexed assetId,
+        address indexed sender,
+        uint256 fulfilledAmount,
+        uint256 refundAmount,
+        uint256 refundFee
     );
 
     event BridgeRefunded(
@@ -134,23 +144,31 @@ interface IBridgeV2 {
 
     // ============ Relayer Functions ============
 
-    /// @notice Fulfill a bridge request on destination chain
+    /// @notice Fulfill a bridge request on destination chain (supports partial fills)
     /// @param bridgeId The bridge request ID
     /// @param assetId The asset being bridged
     /// @param recipient Recipient address
-    /// @param amount Amount to transfer
+    /// @param requestedAmount Amount requested (may fulfill partial if insufficient liquidity)
     /// @param fromChainId Source chain ID
     function fulfillBridge(
         bytes32 bridgeId,
         bytes32 assetId,
         address recipient,
-        uint256 amount,
+        uint256 requestedAmount,
         uint256 fromChainId
     ) external;
 
     /// @notice Mark a bridge as completed on source chain (relayer fee payout)
     /// @param bridgeId The bridge request ID
     function markBridgeCompleted(bytes32 bridgeId) external;
+
+    /// @notice Process refund for partially filled bridge on source chain
+    /// @param bridgeId The bridge request ID
+    /// @param fulfilledAmount How much was actually fulfilled on destination
+    function processPartialFillRefund(
+        bytes32 bridgeId,
+        uint256 fulfilledAmount
+    ) external;
 
     /// @notice Process pending withdrawal queue
     /// @param assetId The asset's queue to process

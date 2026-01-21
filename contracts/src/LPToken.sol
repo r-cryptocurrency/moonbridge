@@ -64,12 +64,12 @@ contract LPToken is ERC20, ILPToken {
     // ============ ERC20 Overrides ============
 
     /// @notice Returns the token name
-    function name() public view override(ERC20, IERC20Metadata) returns (string memory) {
+    function name() public view override returns (string memory) {
         return _tokenName;
     }
 
     /// @notice Returns the token symbol
-    function symbol() public view override(ERC20, IERC20Metadata) returns (string memory) {
+    function symbol() public view override returns (string memory) {
         return _tokenSymbol;
     }
 

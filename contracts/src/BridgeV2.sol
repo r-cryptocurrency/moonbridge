@@ -335,7 +335,12 @@ contract BridgeV2 is
             assetId: assetId,
             sender: msg.sender,
             recipient: recipient,
-            amount: bridgeAmount,
+            originalAmount: amount,
+            bridgeAmount: bridgeAmount,
+            bridgeFee: totalFee,
+            lpFee: lpFee,
+            daoFee: daoFee,
+            fulfilledAmount: 0,
             toChainId: toChainId,
             relayerFee: requiredRelayerFee,
             timestamp: uint64(block.timestamp),
@@ -365,13 +370,13 @@ contract BridgeV2 is
         // Mark as refunded
         request.refunded = true;
 
-        // Return amount (fees already distributed, not refunded)
+        // Return bridgeAmount (fees already distributed, NOT refunded)
         BridgeTypes.AssetConfig storage config = assetConfigs[request.assetId];
-        _transferAsset(config.tokenAddress, msg.sender, request.amount);
+        _transferAsset(config.tokenAddress, msg.sender, request.bridgeAmount);
 
         // Relayer fee is NOT refunded (already in relayerFeeBalance)
 
-        emit BridgeRefunded(bridgeId, request.assetId, msg.sender, request.amount);
+        emit BridgeRefunded(bridgeId, request.assetId, msg.sender, request.bridgeAmount);
     }
 
     // ============ Relayer Functions ============
@@ -381,27 +386,31 @@ contract BridgeV2 is
         bytes32 bridgeId,
         bytes32 assetId,
         address recipient,
-        uint256 amount,
+        uint256 requestedAmount,
         uint256 fromChainId
     ) external onlyRelayer whenNotPaused nonReentrant {
         if (processedBridges[bridgeId]) revert BridgeAlreadyProcessed();
         if (recipient == address(0)) revert InvalidAddress();
-        if (amount == 0) revert InvalidAmount();
+        if (requestedAmount == 0) revert InvalidAmount();
 
         BridgeTypes.AssetConfig storage config = assetConfigs[assetId];
         if (!config.enabled) revert AssetNotEnabled();
 
-        // Check liquidity
+        // Check available liquidity
         uint256 available = getAvailableLiquidity(assetId);
-        if (available < amount) revert InsufficientLiquidity();
 
-        // Mark as processed
+        // Fulfill whatever amount is available (partial fill support)
+        uint256 amountToFulfill = available < requestedAmount ? available : requestedAmount;
+
+        if (amountToFulfill == 0) revert InsufficientLiquidity();
+
+        // Mark as processed (prevent replay)
         processedBridges[bridgeId] = true;
 
-        // Transfer to recipient
-        _transferAsset(config.tokenAddress, recipient, amount);
+        // Transfer available amount to recipient
+        _transferAsset(config.tokenAddress, recipient, amountToFulfill);
 
-        emit BridgeFulfilled(bridgeId, assetId, recipient, amount, fromChainId);
+        emit BridgeFulfilled(bridgeId, assetId, recipient, amountToFulfill, requestedAmount, fromChainId);
     }
 
     /// @inheritdoc IBridgeV2
@@ -415,6 +424,56 @@ contract BridgeV2 is
 
         // Relayer fee was already accumulated in relayerFeeBalance during requestBridge
         // No additional action needed here
+    }
+
+    /// @inheritdoc IBridgeV2
+    function processPartialFillRefund(
+        bytes32 bridgeId,
+        uint256 fulfilledAmount
+    ) external onlyRelayer whenNotPaused nonReentrant {
+        BridgeTypes.BridgeRequest storage request = bridgeRequests[bridgeId];
+        if (request.sender == address(0)) revert BridgeNotFound();
+        if (request.refunded) revert BridgeAlreadyProcessed();
+
+        uint256 bridgeAmount = request.bridgeAmount;
+
+        // If fully fulfilled, just mark complete
+        if (fulfilledAmount >= bridgeAmount) {
+            request.fulfilled = true;
+            request.fulfilledAmount = fulfilledAmount;
+            return;
+        }
+
+        // Partial fill - calculate refund
+        uint256 refundAmount = bridgeAmount - fulfilledAmount;
+
+        // Calculate refund fee: 1% of refund, capped at 100 tokens
+        uint256 refundFee = (refundAmount * BridgeTypes.MAX_REFUND_FEE_BPS) / BPS_DENOMINATOR;
+        if (refundFee > BridgeTypes.MAX_REFUND_FEE_CAP) {
+            refundFee = BridgeTypes.MAX_REFUND_FEE_CAP;
+        }
+
+        uint256 userRefund = refundAmount - refundFee;
+
+        // Distribute refund fee (same 80/20 split as bridge fee)
+        uint256 lpRefundFee = (refundFee * 80) / 100;
+        uint256 daoRefundFee = refundFee - lpRefundFee;
+
+        BridgeTypes.AssetConfig storage config = assetConfigs[request.assetId];
+        poolStates[request.assetId].accumulatedFees += lpRefundFee;
+
+        if (daoRefundFee > 0) {
+            _transferAsset(config.tokenAddress, daoWallet, daoRefundFee);
+        }
+
+        // Refund user
+        _transferAsset(config.tokenAddress, request.sender, userRefund);
+
+        // Mark as refunded
+        request.refunded = true;
+        request.fulfilledAmount = fulfilledAmount;
+
+        emit PartialFillRefunded(bridgeId, request.assetId, request.sender, fulfilledAmount, userRefund, refundFee);
     }
 
     /// @notice Claim accumulated relayer fees (only relayer can call)
