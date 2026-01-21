@@ -136,7 +136,6 @@ function BridgeTab({
   const {
     assetBalance,
     allowance,
-    liquidity: destLiquidity,
     approve,
     requestBridge,
     isApproving,
@@ -145,9 +144,20 @@ function BridgeTab({
     isBridgeSuccess,
     refetchBalance,
     refetchAllowance,
-    refetchLiquidity,
+    refetchLiquidity: refetchSourceLiquidity,
     isNativeAsset,
   } = useBridge(sourceChain, selectedAsset);
+
+  // Fetch destination liquidity separately
+  const {
+    liquidity: destLiquidity,
+    refetchLiquidity: refetchDestLiquidity,
+  } = useBridge(destChain, selectedAsset);
+
+  const refetchLiquidity = () => {
+    refetchSourceLiquidity();
+    refetchDestLiquidity();
+  };
 
   const relayerFee = getRelayerFee(sourceChain);
   const isPaused = false;
@@ -193,10 +203,13 @@ function BridgeTab({
   // Check liquidity warning
   const liquidityWarning = useMemo(() => {
     if (!destLiquidity || amountBigInt <= BigInt(0)) return null;
+    // Calculate the amount that will cross to destination (after source chain fee)
     const fees = calculateFees(amountBigInt);
-    const bridgeAmount = fees.recipientReceives;
+    const bridgeAmount = fees.recipientReceives; // Amount after 1% fee on source
+
+    // Compare what crosses to what's available on destination
     if (bridgeAmount > destLiquidity) {
-      return `Only ${parseFloat(formatUnits(destLiquidity, asset.decimals)).toFixed(2)} ${asset.symbol} available. You will receive a partial fill with refund.`;
+      return `Only ${parseFloat(formatUnits(destLiquidity, asset.decimals)).toFixed(2)} ${asset.symbol} available on destination. You will receive a partial fill with refund.`;
     }
     return null;
   }, [destLiquidity, amountBigInt, asset]);

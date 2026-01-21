@@ -197,6 +197,7 @@ export function useLiquidity(chainId: number, assetId: string) {
     abi: BRIDGE_ABI,
     functionName: 'getAvailableLiquidity',
     args: [assetBytes32],
+    chainId: chainId,
     query: { enabled: !!bridgeAddress },
   });
 
