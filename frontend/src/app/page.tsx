@@ -202,13 +202,21 @@ function BridgeTab({
 
   // Check liquidity warning
   const liquidityWarning = useMemo(() => {
-    if (!destLiquidity || amountBigInt <= BigInt(0)) return null;
+    // Don't show warning if user hasn't entered an amount yet
+    if (amountBigInt <= BigInt(0)) return null;
+
+    // If destLiquidity is undefined, we're still loading - don't show warning yet
+    if (destLiquidity === undefined) return null;
+
     // Calculate the amount that will cross to destination (after source chain fee)
     const fees = calculateFees(amountBigInt);
     const bridgeAmount = fees.recipientReceives; // Amount after 1% fee on source
 
     // Compare what crosses to what's available on destination
     if (bridgeAmount > destLiquidity) {
+      if (destLiquidity === BigInt(0)) {
+        return `⚠️ No liquidity available on destination chain. Transaction will fail or require manual processing.`;
+      }
       return `Only ${parseFloat(formatUnits(destLiquidity, asset.decimals)).toFixed(2)} ${asset.symbol} available on destination. You will receive a partial fill with refund.`;
     }
     return null;
