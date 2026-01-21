@@ -343,12 +343,12 @@ struct BridgeRequest {
 
 ### Relayer Fees Per Chain
 
-| Chain | Relayer Fee | Typical Gas Cost | Profit Margin |
-|-------|-------------|------------------|---------------|
-| Arbitrum Nova | 0.0001 ETH | ~0.00005 ETH | ~100% |
-| Arbitrum One | 0.0001 ETH | ~0.00005 ETH | ~100% |
-| Ethereum | 0.001 ETH | ~0.0003-0.0005 ETH | ~100-233% |
-| Gnosis | 0.3 xDAI | ~0.001 xDAI | ~30000% |
+| Chain | Relayer Fee |
+|-------|-------------|
+| Arbitrum Nova | 0.0001 ETH |
+| Arbitrum One | 0.0001 ETH |
+| Ethereum | 0.001 ETH |
+| Gnosis | 0.3 xDAI |
 
 ## Asset Specifications
 
@@ -426,7 +426,7 @@ Total supported routes: **~40 unique asset-chain combinations**
 | Fee Type | Rate | Recipient | Purpose |
 |----------|------|-----------|---------|
 | LP Fee | 0.8% (80 BPS) | LP Pool | Increases LP token value |
-| DAO Fee | 0.2% (20 BPS) | DAO Wallet | DAO treasury |
+| DAO Fee | 0.2% (20 BPS) | CCMOON DAO Wallet | CCMOON DAO treasury |
 | **Total Bridge Fee** | **1.0% (100 BPS)** | - | - |
 
 ### Relayer Fees (additional, in native gas token)
@@ -444,7 +444,7 @@ Total supported routes: **~40 unique asset-chain combinations**
 
 ```
 Input: 100 MOON
-Bridge Fee: 1 MOON (0.8 MOON to LP, 0.2 MOON to DAO)
+Bridge Fee: 1 MOON (0.8 MOON to LP, 0.2 MOON to CCMOON DAO)
 Relayer Fee: 0.0001 ETH (separate payment)
 Output: 99 MOON received on Arbitrum One
 
@@ -454,7 +454,7 @@ User Pays:
 
 Distribution:
 - 0.8 MOON → LP pool (increases all LP token values)
-- 0.2 MOON → DAO wallet
+- 0.2 MOON → CCMOON DAO wallet
 - 99 MOON → recipient on Arbitrum One
 - 0.0001 ETH → relayerFeeBalance (claimable by relayer)
 ```
@@ -680,27 +680,6 @@ RELAYER_FEES = {
 - Next.js 14+
 - Vercel CLI
 
-### Deployment Costs (Estimates)
-
-| Chain | Deployment Cost | Verification | Total |
-|-------|----------------|--------------|-------|
-| Arbitrum Nova | $5-10 | Free | $5-10 |
-| Arbitrum One | $10-20 | Free | $10-20 |
-| Ethereum | $200-500 | Free | $200-500 |
-| Gnosis | $1-5 | Free | $1-5 |
-| **Total** | **~$216-535** | - | **~$216-535** |
-
-### Operational Costs (Monthly)
-
-| Item | Cost |
-|------|------|
-| VPS (Relayer) | $10-20 |
-| Gas (Relayer) | Variable (depends on volume) |
-| Vercel Pro (optional) | $20 |
-| **Total** | **$30-40 + gas** |
-
-**Note:** Relayer gas costs are covered by accumulated relayer fees at any reasonable volume.
-
 ## Testing Specifications
 
 ### Unit Tests Required
@@ -854,8 +833,8 @@ function burn(address from, uint256 amount) external;
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.0.0 | Dec 2023 | Initial release (2 chains, MOON only) |
-| 2.0.0 | Jan 2024 | Multi-chain, multi-asset, LP system, relayer fees |
+| 1.0.0 | Dec 2025 | Initial release (2 chains, MOON only) |
+| 2.0.0 | Jan 2026 | Multi-chain, multi-asset, LP system, relayer fees |
 
 ## License
 
@@ -863,6 +842,6 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Last Updated:** January 2024
+**Last Updated:** January 2026
 **Document Version:** 1.0.0
 **Contract Version:** 2.0.0
