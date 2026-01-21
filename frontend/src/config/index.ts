@@ -1,5 +1,6 @@
 import { arbitrum, arbitrumNova, mainnet, gnosis } from 'viem/chains';
 import type { Address } from 'viem';
+import { parseEther } from 'viem';
 
 // Chain IDs
 export const CHAIN_IDS = {
@@ -72,12 +73,12 @@ export const ASSETS = {
   },
 } as const;
 
-// BridgeV2 contract addresses - UPDATE AFTER DEPLOYMENT
+// BridgeV2 contract addresses
 export const BRIDGE_ADDRESSES = {
-  [CHAIN_IDS.ARBITRUM_NOVA]: '0x...' as Address,
-  [CHAIN_IDS.ARBITRUM_ONE]: '0x...' as Address,
-  [CHAIN_IDS.ETHEREUM]: '0x...' as Address,
-  [CHAIN_IDS.GNOSIS]: '0x...' as Address,
+  [CHAIN_IDS.ARBITRUM_NOVA]: '0xd7454c00e705d724140b31DDc9A63E45cC0e1b9c' as Address,
+  [CHAIN_IDS.ARBITRUM_ONE]: '0x609B1430b6575590F5C75bcb7db261007d5FED41' as Address,
+  [CHAIN_IDS.ETHEREUM]: '0x609B1430b6575590F5C75bcb7db261007d5FED41' as Address,
+  [CHAIN_IDS.GNOSIS]: '0x7bFF7F20Dd583e0665A5C62A06d2E78ee6f23a01' as Address,
 } as const;
 
 // Chain metadata
@@ -151,6 +152,23 @@ export function getAvailableDestinations(sourceChainId: number, assetId: string)
     .map(([chainId]) => Number(chainId));
 }
 
+export function getDestinationChainId(sourceChainId: number): number {
+  // Return a default destination chain based on source
+  // Priority: Nova <-> One, Ethereum <-> One, Gnosis <-> One
+  switch (sourceChainId) {
+    case CHAIN_IDS.ARBITRUM_NOVA:
+      return CHAIN_IDS.ARBITRUM_ONE;
+    case CHAIN_IDS.ARBITRUM_ONE:
+      return CHAIN_IDS.ARBITRUM_NOVA;
+    case CHAIN_IDS.ETHEREUM:
+      return CHAIN_IDS.ARBITRUM_ONE;
+    case CHAIN_IDS.GNOSIS:
+      return CHAIN_IDS.ARBITRUM_ONE;
+    default:
+      return CHAIN_IDS.ARBITRUM_ONE;
+  }
+}
+
 // Fee constants for V2
 export const FEES = {
   TOTAL_FEE_BPS: 100n, // 1% total fee
@@ -172,18 +190,52 @@ export function getRelayerFee(chainId: number): bigint {
   return RELAYER_FEES[chainId as keyof typeof RELAYER_FEES] || 0n;
 }
 
-// Calculate fees for V2
-export function calculateFees(amount: bigint) {
+// Calculate fees for V2 with partial fill support
+export function calculateFees(amount: bigint, availableLiquidity?: bigint) {
+  // User sends 'amount'. Contract takes 1% fee from it.
   const totalFee = (amount * FEES.TOTAL_FEE_BPS) / FEES.BPS_DENOMINATOR;
   const lpFee = (amount * FEES.LP_FEE_BPS) / FEES.BPS_DENOMINATOR;
   const daoFee = (amount * FEES.DAO_FEE_BPS) / FEES.BPS_DENOMINATOR;
-  const recipientReceives = amount - totalFee;
+  const bridgeAmount = amount - totalFee; // Amount that crosses chains
 
+  // Check for partial fill scenario
+  if (availableLiquidity !== undefined && availableLiquidity < bridgeAmount) {
+    // Partial fill: only availableLiquidity can be fulfilled
+    const fulfillAmount = availableLiquidity;
+    const refundAmount = bridgeAmount - fulfillAmount;
+
+    // Refund fee: 1% capped at 100 tokens
+    const MAX_REFUND_FEE_CAP = BigInt('100000000000000000000'); // 100 tokens (18 decimals)
+    const calculatedRefundFee = (refundAmount * FEES.TOTAL_FEE_BPS) / FEES.BPS_DENOMINATOR;
+    const refundFee = calculatedRefundFee > MAX_REFUND_FEE_CAP ? MAX_REFUND_FEE_CAP : calculatedRefundFee;
+    const requesterRefund = refundAmount - refundFee;
+
+    return {
+      totalFee,
+      lpFee,
+      daoFee,
+      recipientReceives: fulfillAmount, // Only what's available
+      fulfillAmount,
+      fulfillFee: totalFee,
+      refundAmount,
+      refundFee,
+      requesterRefund,
+      hasInsufficientLiquidity: true,
+    };
+  }
+
+  // Full fill: enough liquidity available
   return {
     totalFee,
     lpFee,
     daoFee,
-    recipientReceives,
+    recipientReceives: bridgeAmount,
+    fulfillAmount: bridgeAmount,
+    fulfillFee: totalFee,
+    refundAmount: 0n,
+    refundFee: 0n,
+    requesterRefund: 0n,
+    hasInsufficientLiquidity: false,
   };
 }
 
@@ -276,9 +328,22 @@ export const BRIDGE_ABI = [
     inputs: [
       { name: 'bridgeId', type: 'bytes32', indexed: true },
       { name: 'assetId', type: 'bytes32', indexed: true },
-      { name: 'recipient', type: 'address', indexed: false },
-      { name: 'amount', type: 'uint256', indexed: false },
-      { name: 'relayer', type: 'address', indexed: false },
+      { name: 'recipient', type: 'address', indexed: true },
+      { name: 'fulfilledAmount', type: 'uint256', indexed: false },
+      { name: 'requestedAmount', type: 'uint256', indexed: false },
+      { name: 'fromChainId', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'PartialFillRefunded',
+    inputs: [
+      { name: 'bridgeId', type: 'bytes32', indexed: true },
+      { name: 'assetId', type: 'bytes32', indexed: true },
+      { name: 'sender', type: 'address', indexed: true },
+      { name: 'fulfilledAmount', type: 'uint256', indexed: false },
+      { name: 'refundAmount', type: 'uint256', indexed: false },
+      { name: 'refundFee', type: 'uint256', indexed: false },
     ],
   },
   {

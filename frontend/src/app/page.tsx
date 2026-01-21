@@ -8,8 +8,10 @@ import { useBridge } from '@/hooks/useBridge';
 import {
   CHAIN_IDS,
   CHAIN_META,
+  ASSET_IDS,
   calculateFees,
   getDestinationChainId,
+  getRelayerFee,
 } from '@/config';
 import Image from 'next/image';
 
@@ -145,11 +147,9 @@ export default function BridgePage() {
   const destMeta = CHAIN_META[destChain as keyof typeof CHAIN_META];
 
   const {
-    moonBalance,
+    assetBalance: moonBalance,
     allowance,
-    relayerFee,
-    destLiquidity,
-    isPaused,
+    liquidity: destLiquidity,
     approve,
     requestBridge,
     isApproving,
@@ -159,7 +159,13 @@ export default function BridgePage() {
     refetchBalance,
     refetchAllowance,
     refetchLiquidity,
-  } = useBridge(sourceChain);
+  } = useBridge(sourceChain, ASSET_IDS.MOON);
+
+  // Get relayer fee for source chain
+  const relayerFee = getRelayerFee(sourceChain);
+
+  // For now, assume bridge is not paused (you can add isPaused to the hook later if needed)
+  const isPaused = false;
 
   // Parse amount to bigint
   const amountBigInt = useMemo(() => {
@@ -245,7 +251,7 @@ export default function BridgePage() {
   // Handle bridge action
   const handleBridge = async () => {
     if (!canBridge || !recipientAddress) return;
-    await requestBridge(amountBigInt, recipientAddress);
+    await requestBridge(amountBigInt, destChain, recipientAddress);
   };
 
   // Handle approve action
@@ -410,7 +416,7 @@ export default function BridgePage() {
           </div>
 
           {/* Fee breakdown */}
-          {amountBigInt > BigInt(0) && destLiquidity !== undefined && relayerFee !== undefined && (
+          {amountBigInt > BigInt(0) && destLiquidity !== undefined && (
             <FeeBreakdown
               amount={amountBigInt}
               destLiquidity={destLiquidity}
@@ -455,11 +461,9 @@ export default function BridgePage() {
           </div>
 
           {/* ETH fee note */}
-          {relayerFee !== undefined && (
-            <p className="mt-3 text-xs text-center text-gray-500">
-              Relayer fee: {parseFloat(formatEther(relayerFee)).toFixed(6)} ETH
-            </p>
-          )}
+          <p className="mt-3 text-xs text-center text-gray-500">
+            Relayer fee: {parseFloat(formatEther(relayerFee)).toFixed(6)} ETH
+          </p>
         </div>
 
         {/* Info section */}
