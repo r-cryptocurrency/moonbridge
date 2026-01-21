@@ -26,6 +26,7 @@ export function useBridge(chainId: number, assetId: string) {
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: address ? [address] : undefined,
+    chainId: chainId,
     query: { enabled: !!address && !!assetAddress && !isNative },
   });
 
@@ -41,6 +42,7 @@ export function useBridge(chainId: number, assetId: string) {
     abi: ERC20_ABI,
     functionName: 'allowance',
     args: address && bridgeAddress ? [address, bridgeAddress] : undefined,
+    chainId: chainId,
     query: { enabled: !!address && !!assetAddress && !!bridgeAddress && !isNative },
   });
 
@@ -136,6 +138,7 @@ export function useLiquidity(chainId: number, assetId: string) {
     abi: BRIDGE_ABI,
     functionName: 'assetConfigs',
     args: [assetBytes32],
+    chainId: chainId,
     query: { enabled: !!bridgeAddress },
   });
 
@@ -147,6 +150,7 @@ export function useLiquidity(chainId: number, assetId: string) {
     abi: LP_TOKEN_ABI,
     functionName: 'balanceOf',
     args: address ? [address] : undefined,
+    chainId: chainId,
     query: { enabled: !!address && !!lpTokenAddress },
   });
 
@@ -155,6 +159,7 @@ export function useLiquidity(chainId: number, assetId: string) {
     address: lpTokenAddress,
     abi: LP_TOKEN_ABI,
     functionName: 'totalSupply',
+    chainId: chainId,
     query: { enabled: !!lpTokenAddress },
   });
 
@@ -164,6 +169,7 @@ export function useLiquidity(chainId: number, assetId: string) {
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: address ? [address] : undefined,
+    chainId: chainId,
     query: { enabled: !!address && !!assetAddress && !isNative },
   });
 
@@ -179,6 +185,7 @@ export function useLiquidity(chainId: number, assetId: string) {
     abi: ERC20_ABI,
     functionName: 'allowance',
     args: address && bridgeAddress ? [address, bridgeAddress] : undefined,
+    chainId: chainId,
     query: { enabled: !!address && !!assetAddress && !!bridgeAddress && !isNative },
   });
 
@@ -188,6 +195,7 @@ export function useLiquidity(chainId: number, assetId: string) {
     abi: LP_TOKEN_ABI,
     functionName: 'allowance',
     args: address && bridgeAddress ? [address, bridgeAddress] : undefined,
+    chainId: chainId,
     query: { enabled: !!address && !!lpTokenAddress && !!bridgeAddress },
   });
 
