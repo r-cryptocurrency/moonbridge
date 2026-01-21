@@ -299,9 +299,11 @@ export const BRIDGE_ABI = [
         name: '',
         type: 'tuple',
         components: [
-          { name: 'tokenAddress', type: 'address' },
-          { name: 'lpToken', type: 'address' },
           { name: 'enabled', type: 'bool' },
+          { name: 'tokenAddress', type: 'address' },
+          { name: 'lpTokenAddress', type: 'address' },
+          { name: 'lpFeeBps', type: 'uint16' },
+          { name: 'daoFeeBps', type: 'uint16' },
           { name: 'minBridgeAmount', type: 'uint256' },
           { name: 'maxBridgeAmount', type: 'uint256' },
         ],

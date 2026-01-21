@@ -202,15 +202,34 @@ function BridgeTab({
 
   // Check liquidity warning
   const liquidityWarning = useMemo(() => {
+    // Debug logging
+    console.log('[Liquidity Warning Debug]', {
+      amountBigInt: amountBigInt.toString(),
+      destLiquidity: destLiquidity?.toString() ?? 'undefined',
+      assetSymbol: asset.symbol,
+    });
+
     // Don't show warning if user hasn't entered an amount yet
-    if (amountBigInt <= BigInt(0)) return null;
+    if (amountBigInt <= BigInt(0)) {
+      console.log('[Liquidity Warning] No amount entered');
+      return null;
+    }
 
     // If destLiquidity is undefined, we're still loading - don't show warning yet
-    if (destLiquidity === undefined) return null;
+    if (destLiquidity === undefined) {
+      console.log('[Liquidity Warning] Dest liquidity still loading');
+      return null;
+    }
 
     // Calculate the amount that will cross to destination (after source chain fee)
     const fees = calculateFees(amountBigInt);
     const bridgeAmount = fees.recipientReceives; // Amount after 1% fee on source
+
+    console.log('[Liquidity Warning] Comparison:', {
+      bridgeAmount: bridgeAmount.toString(),
+      destLiquidity: destLiquidity.toString(),
+      willWarn: bridgeAmount > destLiquidity,
+    });
 
     // Compare what crosses to what's available on destination
     if (bridgeAmount > destLiquidity) {
