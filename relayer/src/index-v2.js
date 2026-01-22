@@ -1,15 +1,35 @@
+/**
+ * MoonBridge V2 Relayer
+ *
+ * Monitors bridge requests across multiple chains and automatically fulfills them
+ * on the destination chain when sufficient liquidity is available.
+ *
+ * Supported chains:
+ * - Arbitrum Nova (42170)
+ * - Arbitrum One (42161)
+ * - Ethereum Mainnet (1)
+ * - Gnosis Chain (100)
+ *
+ * @version 2.0.0
+ */
+
 import 'dotenv/config';
 import {
   createPublicClient,
   createWalletClient,
   http,
   formatEther,
-  parseEther,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { arbitrum, arbitrumNova, mainnet, gnosis } from 'viem/chains';
 
-// Bridge addresses
+// =============================================================================
+// Configuration
+// =============================================================================
+
+/**
+ * Bridge contract addresses per chain
+ */
 const BRIDGE_ADDRESSES = {
   42170: '0xd7454c00e705d724140b31DDc9A63E45cC0e1b9c', // Nova
   42161: '0x609B1430b6575590F5C75bcb7db261007d5FED41', // One
@@ -17,17 +37,45 @@ const BRIDGE_ADDRESSES = {
   100: '0x7bFF7F20Dd583e0665A5C62A06d2E78ee6f23a01',    // Gnosis
 };
 
-// Chain configs
+/**
+ * Chain configurations with RPC endpoints and block limits
+ */
 const CHAINS = {
-  42170: { chain: arbitrumNova, name: 'Arbitrum Nova', rpc: 'https://nova.arbitrum.io/rpc', confirmations: 2, maxHistoricalBlocks: 10000 },
-  42161: { chain: arbitrum, name: 'Arbitrum One', rpc: 'https://arb1.arbitrum.io/rpc', confirmations: 2, maxHistoricalBlocks: 10000 },
-  1: { chain: mainnet, name: 'Ethereum', rpc: 'https://eth.llamarpc.com', confirmations: 3, maxHistoricalBlocks: 1000 },
-  100: { chain: gnosis, name: 'Gnosis', rpc: 'https://gnosis.drpc.org', confirmations: 2, maxHistoricalBlocks: 10000 },
+  42170: {
+    chain: arbitrumNova,
+    name: 'Arbitrum Nova',
+    rpc: 'https://nova.arbitrum.io/rpc',
+    confirmations: 2,
+    maxHistoricalBlocks: 10000,
+  },
+  42161: {
+    chain: arbitrum,
+    name: 'Arbitrum One',
+    rpc: 'https://arb1.arbitrum.io/rpc',
+    confirmations: 2,
+    maxHistoricalBlocks: 10000,
+  },
+  1: {
+    chain: mainnet,
+    name: 'Ethereum',
+    rpc: 'https://eth.llamarpc.com',
+    confirmations: 3,
+    maxHistoricalBlocks: 1000, // LlamaRPC has 1k block limit
+  },
+  100: {
+    chain: gnosis,
+    name: 'Gnosis',
+    rpc: 'https://gnosis.drpc.org',
+    confirmations: 2,
+    maxHistoricalBlocks: 10000,
+  },
 };
 
-// V2 Bridge ABI
+/**
+ * Bridge V2 ABI - Only includes events and functions needed by relayer
+ */
 const BRIDGE_ABI = [
-  // BridgeRequested event
+  // BridgeRequested event - Emitted when user initiates a bridge
   {
     type: 'event',
     name: 'BridgeRequested',
@@ -41,7 +89,7 @@ const BRIDGE_ABI = [
       { name: 'fee', type: 'uint256', indexed: false },
     ],
   },
-  // BridgeFulfilled event
+  // BridgeFulfilled event - Emitted when relayer fulfills a bridge
   {
     type: 'event',
     name: 'BridgeFulfilled',
@@ -54,7 +102,7 @@ const BRIDGE_ABI = [
       { name: 'fromChainId', type: 'uint256', indexed: false },
     ],
   },
-  // processedBridges
+  // View function - Check if bridge has been processed
   {
     type: 'function',
     name: 'processedBridges',
@@ -62,7 +110,7 @@ const BRIDGE_ABI = [
     inputs: [{ name: 'bridgeId', type: 'bytes32' }],
     outputs: [{ name: '', type: 'bool' }],
   },
-  // getAvailableLiquidity
+  // View function - Get available liquidity for an asset
   {
     type: 'function',
     name: 'getAvailableLiquidity',
@@ -70,7 +118,7 @@ const BRIDGE_ABI = [
     inputs: [{ name: 'assetId', type: 'bytes32' }],
     outputs: [{ name: '', type: 'uint256' }],
   },
-  // fulfillBridge
+  // Write function - Fulfill a bridge request on destination chain
   {
     type: 'function',
     name: 'fulfillBridge',
@@ -84,7 +132,7 @@ const BRIDGE_ABI = [
     ],
     outputs: [],
   },
-  // processPartialFillRefund
+  // Write function - Process partial fill refund on source chain
   {
     type: 'function',
     name: 'processPartialFillRefund',
@@ -97,10 +145,25 @@ const BRIDGE_ABI = [
   },
 ];
 
-// Track processed bridges
+// =============================================================================
+// State
+// =============================================================================
+
+/**
+ * Set of bridge IDs that have been processed to prevent duplicate fulfillments
+ */
 const processedBridges = new Set();
 
-// Initialize clients for all chains
+// =============================================================================
+// Client Initialization
+// =============================================================================
+
+/**
+ * Initialize blockchain clients for all supported chains
+ *
+ * @returns {Object} Object containing clients and relayer account
+ * @throws {Error} If RELAYER_PRIVATE_KEY is not set
+ */
 function initializeClients() {
   const privateKey = process.env.RELAYER_PRIVATE_KEY;
   if (!privateKey) {
@@ -135,12 +198,23 @@ function initializeClients() {
   return { clients, account };
 }
 
-// Process a bridge request
+// =============================================================================
+// Bridge Request Processing
+// =============================================================================
+
+/**
+ * Process a bridge request by fulfilling it on the destination chain
+ *
+ * @param {Object} clients - Map of chain clients
+ * @param {Object} request - Bridge request details
+ * @param {string} sourceChainId - Source chain ID where request originated
+ */
 async function processBridgeRequest(clients, request, sourceChainId) {
   const sourceClient = clients[sourceChainId];
   const destChainId = Number(request.toChainId);
   const destClient = clients[destChainId];
 
+  // Validate destination chain is supported
   if (!destClient) {
     console.log(`  ⚠️  Destination chain ${destChainId} not supported by relayer`);
     return;
@@ -148,7 +222,7 @@ async function processBridgeRequest(clients, request, sourceChainId) {
 
   const bridgeId = request.bridgeId;
 
-  // Check if already processed
+  // Check if already processed in memory
   if (processedBridges.has(bridgeId)) {
     return;
   }
@@ -161,7 +235,7 @@ async function processBridgeRequest(clients, request, sourceChainId) {
   console.log(`  Recipient: ${request.recipient}`);
 
   try {
-    // Check if already fulfilled on destination
+    // Check if already fulfilled on-chain
     const isProcessed = await destClient.public.readContract({
       address: destClient.bridgeAddress,
       abi: BRIDGE_ABI,
@@ -188,12 +262,13 @@ async function processBridgeRequest(clients, request, sourceChainId) {
     const requestedAmount = request.amount;
     const fulfillAmount = availableLiquidity < requestedAmount ? availableLiquidity : requestedAmount;
 
+    // Cannot fulfill if no liquidity
     if (fulfillAmount === 0n) {
       console.log(`  ❌ No liquidity available - cannot fulfill`);
       return;
     }
 
-    // Fulfill the bridge
+    // Fulfill the bridge on destination chain
     console.log(`  🚀 Fulfilling ${formatEther(fulfillAmount)}...`);
 
     const hash = await destClient.wallet.writeContract({
@@ -220,7 +295,7 @@ async function processBridgeRequest(clients, request, sourceChainId) {
       console.log(`  ✅ Fulfilled! Block: ${receipt.blockNumber}`);
       processedBridges.add(bridgeId);
 
-      // Check if partial fill (need to process refund)
+      // Handle partial fill - process refund on source chain
       if (fulfillAmount < requestedAmount) {
         console.log(`  ⚠️  Partial fill: ${formatEther(fulfillAmount)} / ${formatEther(requestedAmount)}`);
         console.log(`  🔄 Processing refund on source chain...`);
@@ -257,7 +332,17 @@ async function processBridgeRequest(clients, request, sourceChainId) {
   }
 }
 
-// Watch for bridge requests on a chain
+// =============================================================================
+// Event Watching
+// =============================================================================
+
+/**
+ * Watch for new BridgeRequested events on a specific chain
+ *
+ * @param {Object} clients - Map of chain clients
+ * @param {string} chainId - Chain ID to watch
+ * @returns {Function} Unwatch function to stop watching
+ */
 function watchBridgeRequests(clients, chainId) {
   const client = clients[chainId];
 
@@ -290,7 +375,12 @@ function watchBridgeRequests(clients, chainId) {
   return unwatch;
 }
 
-// Process historical requests
+/**
+ * Process historical bridge requests from recent blocks
+ *
+ * @param {Object} clients - Map of chain clients
+ * @param {string} chainId - Chain ID to process
+ */
 async function processHistoricalRequests(clients, chainId) {
   const client = clients[chainId];
 
@@ -328,27 +418,38 @@ async function processHistoricalRequests(clients, chainId) {
   }
 }
 
+// =============================================================================
 // Main
+// =============================================================================
+
+/**
+ * Main relayer loop
+ * - Initialize clients for all chains
+ * - Process historical bridge requests
+ * - Watch for new bridge requests
+ * - Handle graceful shutdown
+ */
 async function main() {
   console.log('🌉 MoonBridge V2 Relayer Starting...\n');
 
+  // Initialize blockchain clients
   const { clients, account } = initializeClients();
 
-  // Process historical requests first
+  // Process recent historical requests on all chains
   for (const chainId of Object.keys(clients)) {
     await processHistoricalRequests(clients, chainId);
   }
 
   console.log('\n📡 Starting event watchers...\n');
 
-  // Watch for new requests on all chains
+  // Start watching for new requests on all chains
   const unwatchers = Object.keys(clients).map(chainId =>
     watchBridgeRequests(clients, chainId)
   );
 
   console.log('✅ Relayer running!\n');
 
-  // Keep process alive
+  // Graceful shutdown handler
   process.on('SIGINT', () => {
     console.log('\n🛑 Shutting down...');
     unwatchers.forEach(unwatch => unwatch());
@@ -356,6 +457,7 @@ async function main() {
   });
 }
 
+// Start the relayer
 main().catch((error) => {
   console.error('Fatal error:', error);
   process.exit(1);
