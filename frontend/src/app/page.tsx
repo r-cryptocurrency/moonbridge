@@ -204,6 +204,8 @@ function BridgeTab({
   const liquidityWarning = useMemo(() => {
     // Debug logging
     console.log('[Liquidity Warning Debug]', {
+      sourceChain,
+      destChain,
       amountBigInt: amountBigInt.toString(),
       destLiquidity: destLiquidity?.toString() ?? 'undefined',
       assetSymbol: asset.symbol,
@@ -217,7 +219,7 @@ function BridgeTab({
 
     // If destLiquidity is undefined, we're still loading - don't show warning yet
     if (destLiquidity === undefined) {
-      console.log('[Liquidity Warning] Dest liquidity still loading');
+      console.log('[Liquidity Warning] Dest liquidity still loading for chain', destChain);
       return null;
     }
 
@@ -239,7 +241,7 @@ function BridgeTab({
       return `Only ${parseFloat(formatUnits(destLiquidity, asset.decimals)).toFixed(2)} ${asset.symbol} available on destination. You will receive a partial fill with refund.`;
     }
     return null;
-  }, [destLiquidity, amountBigInt, asset]);
+  }, [destLiquidity, amountBigInt, asset, destChain, sourceChain]);
 
   // Refetch data on success
   useEffect(() => {
