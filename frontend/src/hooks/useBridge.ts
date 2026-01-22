@@ -1,4 +1,5 @@
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, useBalance } from 'wagmi';
+import { useEffect } from 'react';
 import { type Address } from 'viem';
 import {
   BRIDGE_ABI,
@@ -57,8 +58,8 @@ export function useBridge(chainId: number, assetId: string) {
   });
 
   // Write contracts
-  const { writeContract: writeApprove, data: approveHash, isPending: isApproving } = useWriteContract();
-  const { writeContract: writeBridge, data: bridgeHash, isPending: isBridging } = useWriteContract();
+  const { writeContract: writeApprove, data: approveHash, isPending: isApproving, reset: resetApprove } = useWriteContract();
+  const { writeContract: writeBridge, data: bridgeHash, isPending: isBridging, reset: resetBridge } = useWriteContract();
 
   // Transaction confirmations
   const { isLoading: isApproveConfirming, isSuccess: isApproveSuccess } = useWaitForTransactionReceipt({
@@ -68,6 +69,22 @@ export function useBridge(chainId: number, assetId: string) {
   const { isLoading: isBridgeConfirming, isSuccess: isBridgeSuccess } = useWaitForTransactionReceipt({
     hash: bridgeHash,
   });
+
+  // Reset approve state after success
+  useEffect(() => {
+    if (isApproveSuccess) {
+      const timer = setTimeout(() => resetApprove(), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [isApproveSuccess, resetApprove]);
+
+  // Reset bridge state after success
+  useEffect(() => {
+    if (isBridgeSuccess) {
+      const timer = setTimeout(() => resetBridge(), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [isBridgeSuccess, resetBridge]);
 
   // Approve token spending
   const approve = async (amount?: bigint) => {
@@ -211,10 +228,10 @@ export function useLiquidity(chainId: number, assetId: string) {
   });
 
   // Write contracts
-  const { writeContract: writeApprove, data: approveHash, isPending: isApproving } = useWriteContract();
-  const { writeContract: writeApproveLPToken, data: approveLPHash, isPending: isApprovingLP } = useWriteContract();
-  const { writeContract: writeDeposit, data: depositHash, isPending: isDepositing } = useWriteContract();
-  const { writeContract: writeWithdraw, data: withdrawHash, isPending: isWithdrawing } = useWriteContract();
+  const { writeContract: writeApprove, data: approveHash, isPending: isApproving, reset: resetApprove } = useWriteContract();
+  const { writeContract: writeApproveLPToken, data: approveLPHash, isPending: isApprovingLP, reset: resetApproveLPToken } = useWriteContract();
+  const { writeContract: writeDeposit, data: depositHash, isPending: isDepositing, reset: resetDeposit } = useWriteContract();
+  const { writeContract: writeWithdraw, data: withdrawHash, isPending: isWithdrawing, reset: resetWithdraw } = useWriteContract();
 
   // Transaction confirmations
   const { isLoading: isApproveConfirming, isSuccess: isApproveSuccess } = useWaitForTransactionReceipt({
@@ -232,6 +249,38 @@ export function useLiquidity(chainId: number, assetId: string) {
   const { isLoading: isWithdrawConfirming, isSuccess: isWithdrawSuccess } = useWaitForTransactionReceipt({
     hash: withdrawHash,
   });
+
+  // Reset approve state after success
+  useEffect(() => {
+    if (isApproveSuccess) {
+      const timer = setTimeout(() => resetApprove(), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [isApproveSuccess, resetApprove]);
+
+  // Reset approve LP state after success
+  useEffect(() => {
+    if (isApproveLPSuccess) {
+      const timer = setTimeout(() => resetApproveLPToken(), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [isApproveLPSuccess, resetApproveLPToken]);
+
+  // Reset deposit state after success
+  useEffect(() => {
+    if (isDepositSuccess) {
+      const timer = setTimeout(() => resetDeposit(), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [isDepositSuccess, resetDeposit]);
+
+  // Reset withdraw state after success
+  useEffect(() => {
+    if (isWithdrawSuccess) {
+      const timer = setTimeout(() => resetWithdraw(), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [isWithdrawSuccess, resetWithdraw]);
 
   // Approve asset for deposit
   const approveAsset = async (amount?: bigint) => {
