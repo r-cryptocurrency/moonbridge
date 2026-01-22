@@ -48,7 +48,7 @@ export function useBridge(chainId: number, assetId: string) {
   });
 
   // Available liquidity on this chain
-  const { data: liquidity, refetch: refetchLiquidity } = useReadContract({
+  const { data: liquidity, refetch: refetchLiquidity, isError: isLiquidityError, error: liquidityError } = useReadContract({
     address: bridgeAddress,
     abi: BRIDGE_ABI,
     functionName: 'getAvailableLiquidity',
@@ -56,6 +56,11 @@ export function useBridge(chainId: number, assetId: string) {
     chainId: chainId,
     query: { enabled: !!bridgeAddress },
   });
+
+  // Log liquidity fetch errors
+  if (isLiquidityError) {
+    console.error(`[useBridge] Error fetching liquidity on chain ${chainId}:`, liquidityError);
+  }
 
   // Write contracts
   const { writeContract: writeApprove, data: approveHash, isPending: isApproving, reset: resetApprove } = useWriteContract();
@@ -138,6 +143,7 @@ export function useBridge(chainId: number, assetId: string) {
     approveHash,
     bridgeHash,
     isNativeAsset: isNative,
+    isLiquidityError,
   };
 }
 

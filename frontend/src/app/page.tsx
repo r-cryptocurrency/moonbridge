@@ -22,21 +22,21 @@ type Tab = 'bridge' | 'liquidity';
 // Fee breakdown component
 function FeeBreakdown({
   amount,
-  destLiquidity,
+  effectiveDestLiquidity,
   relayerFee,
   assetSymbol,
   decimals,
 }: {
   amount: bigint;
-  destLiquidity: bigint;
+  effectiveDestLiquidity: bigint;
   relayerFee: bigint;
   assetSymbol: string;
   decimals: number;
 }) {
   const fees = useMemo(() => {
     if (amount <= BigInt(0)) return null;
-    return calculateFees(amount, destLiquidity);
-  }, [amount, destLiquidity]);
+    return calculateFees(amount, effectiveDestLiquidity);
+  }, [amount, effectiveDestLiquidity]);
 
   if (!fees || amount <= BigInt(0)) return null;
 
@@ -152,7 +152,11 @@ function BridgeTab({
   const {
     liquidity: destLiquidity,
     refetchLiquidity: refetchDestLiquidity,
+    isLiquidityError: isDestLiquidityError,
   } = useBridge(destChain, selectedAsset);
+
+  // If there's an error fetching dest liquidity, treat it as 0
+  const effectiveDestLiquidity = isDestLiquidityError ? BigInt(0) : destLiquidity;
 
   const refetchLiquidity = () => {
     refetchSourceLiquidity();
@@ -207,7 +211,7 @@ function BridgeTab({
       sourceChain,
       destChain,
       amountBigInt: amountBigInt.toString(),
-      destLiquidity: destLiquidity?.toString() ?? 'undefined',
+      effectiveDestLiquidity: effectiveDestLiquidity?.toString() ?? 'undefined',
       assetSymbol: asset.symbol,
     });
 
@@ -217,8 +221,8 @@ function BridgeTab({
       return null;
     }
 
-    // If destLiquidity is undefined, we're still loading - don't show warning yet
-    if (destLiquidity === undefined) {
+    // If effectiveDestLiquidity is undefined, we're still loading - don't show warning yet
+    if (effectiveDestLiquidity === undefined) {
       console.log('[Liquidity Warning] Dest liquidity still loading for chain', destChain);
       return null;
     }
@@ -229,19 +233,19 @@ function BridgeTab({
 
     console.log('[Liquidity Warning] Comparison:', {
       bridgeAmount: bridgeAmount.toString(),
-      destLiquidity: destLiquidity.toString(),
-      willWarn: bridgeAmount > destLiquidity,
+      effectiveDestLiquidity: effectiveDestLiquidity.toString(),
+      willWarn: bridgeAmount > effectiveDestLiquidity,
     });
 
     // Compare what crosses to what's available on destination
-    if (bridgeAmount > destLiquidity) {
-      if (destLiquidity === BigInt(0)) {
+    if (bridgeAmount > effectiveDestLiquidity) {
+      if (effectiveDestLiquidity === BigInt(0)) {
         return `⚠️ No liquidity available on destination chain. Transaction will fail or require manual processing.`;
       }
-      return `Only ${parseFloat(formatUnits(destLiquidity, asset.decimals)).toFixed(2)} ${asset.symbol} available on destination. You will receive a partial fill with refund.`;
+      return `Only ${parseFloat(formatUnits(effectiveDestLiquidity, asset.decimals)).toFixed(2)} ${asset.symbol} available on destination. You will receive a partial fill with refund.`;
     }
     return null;
-  }, [destLiquidity, amountBigInt, asset, destChain, sourceChain]);
+  }, [effectiveDestLiquidity, amountBigInt, asset, destChain, sourceChain]);
 
   // Refetch data on success
   useEffect(() => {
@@ -317,8 +321,8 @@ function BridgeTab({
         <div className="flex items-center justify-between text-sm">
           <span className="text-gray-500">Destination Liquidity:</span>
           <span className="text-white font-mono">
-            {destLiquidity !== undefined
-              ? `${parseFloat(formatUnits(destLiquidity, asset.decimals)).toFixed(2)} ${asset.symbol}`
+            {effectiveDestLiquidity !== undefined
+              ? `${parseFloat(formatUnits(effectiveDestLiquidity, asset.decimals)).toFixed(2)} ${asset.symbol}`
               : '...'}
           </span>
         </div>
@@ -362,10 +366,10 @@ function BridgeTab({
       </div>
 
       {/* Fee breakdown */}
-      {amountBigInt > BigInt(0) && destLiquidity !== undefined && (
+      {amountBigInt > BigInt(0) && effectiveDestLiquidity !== undefined && (
         <FeeBreakdown
           amount={amountBigInt}
-          destLiquidity={destLiquidity}
+          effectiveDestLiquidity={effectiveDestLiquidity}
           relayerFee={relayerFee}
           assetSymbol={asset.symbol}
           decimals={asset.decimals}
