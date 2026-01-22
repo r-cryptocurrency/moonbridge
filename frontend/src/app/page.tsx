@@ -137,6 +137,34 @@ function BridgeTab({
   const destMeta = CHAIN_META[destChain as keyof typeof CHAIN_META];
   const asset = ASSETS[selectedAsset as keyof typeof ASSETS];
 
+  // Helper to switch chains with fallback to add network
+  const handleSwitchChain = async (targetChainId: number) => {
+    try {
+      await switchChain({ chainId: targetChainId });
+    } catch (error: any) {
+      console.error('Failed to switch chain:', error);
+      // If chain not found (error 4902), try to add it
+      if (error?.code === 4902 || error?.message?.includes('Unrecognized chain') || error?.message?.includes('does not match')) {
+        try {
+          const chainMeta = CHAIN_META[targetChainId as keyof typeof CHAIN_META];
+          await (window as any).ethereum?.request({
+            method: 'wallet_addEthereumChain',
+            params: [{
+              chainId: `0x${targetChainId.toString(16)}`,
+              chainName: chainMeta.name,
+              rpcUrls: [chainMeta.chain.rpcUrls.default.http[0]],
+              nativeCurrency: chainMeta.chain.nativeCurrency,
+              blockExplorerUrls: [chainMeta.explorer],
+            }],
+          });
+        } catch (addError) {
+          console.error('Failed to add chain:', addError);
+          alert(`Please add ${CHAIN_META[targetChainId as keyof typeof CHAIN_META].name} to your wallet manually.`);
+        }
+      }
+    }
+  };
+
   const {
     assetBalance,
     allowance,
@@ -393,7 +421,7 @@ function BridgeTab({
           </ConnectButton.Custom>
         ) : chainId !== sourceChain ? (
           <button
-            onClick={() => switchChain({ chainId: sourceChain })}
+            onClick={() => handleSwitchChain(sourceChain)}
             className="btn-primary w-full"
           >
             Switch to {sourceMeta.shortName}
@@ -595,7 +623,7 @@ function LiquidityTab({
           </ConnectButton.Custom>
         ) : chainId !== sourceChain ? (
           <button
-            onClick={() => switchChain({ chainId: sourceChain })}
+            onClick={() => handleSwitchChain(sourceChain)}
             className="btn-primary w-full"
           >
             Switch to {sourceMeta.shortName}
@@ -653,7 +681,7 @@ function LiquidityTab({
           </ConnectButton.Custom>
         ) : chainId !== sourceChain ? (
           <button
-            onClick={() => switchChain({ chainId: sourceChain })}
+            onClick={() => handleSwitchChain(sourceChain)}
             className="btn-primary w-full"
           >
             Switch to {sourceMeta.shortName}
