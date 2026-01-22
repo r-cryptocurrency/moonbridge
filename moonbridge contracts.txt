@@ -1,9 +1,0 @@
-Summary - New Deployment Info
-
-Item - Address
-
-Nova Bridge - 0x2a0a8e54162341Fc16233B35BDC539f51939716f
-One Bridge - 0x2a0a8e54162341Fc16233B35BDC539f51939716f
-Admin - 0xe6fB7719D0797A812aaBe2213aB806B187113cd8
-Relayer #1 - 0x536afd811809e2ea5d8a66ff0c42b7a5d9de2093
-Relayer #2 - 0x8ad29b59c2fa197ab6abc31886229f1ba818e4da
