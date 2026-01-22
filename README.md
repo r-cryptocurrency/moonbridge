@@ -1,12 +1,78 @@
 # MoonBridge
 
-DAO-owned, liquidity-backed fast bridge for MOON between Arbitrum Nova and Arbitrum One.
+Cross-chain bridge for MOON tokens supporting Arbitrum Nova, Arbitrum One, Ethereum Mainnet, and Gnosis Chain.
 
-## Architecture Overview
+**Live at:** [moonbridge.cc](https://moonbridge.cc)
+
+## Overview
+
+MoonBridge V2 is a fast, liquidity-backed bridge protocol that enables instant transfers of MOON tokens across multiple EVM-compatible chains. The bridge uses an automated relayer system to fulfill requests and supports partial fills with automatic refunds when liquidity is limited.
+
+### Key Features
+
+- **Multi-chain Support**: Bridge between 4 chains (Arbitrum Nova, Arbitrum One, Ethereum, Gnosis)
+- **Fast Transfers**: Liquidity-backed for instant fulfillment (typically 5-30 seconds)
+- **Partial Fills**: Automatically handles insufficient liquidity with partial fills and refunds
+- **No Limits**: No per-transaction or daily caps
+- **Transparent Fees**: 1% bridge fee, optional refund fee on partial fills
+- **Enterprise-grade**: Automated relayer with comprehensive monitoring and error handling
+
+### Supported Chains
+
+| Chain | Chain ID | Bridge Address |
+|-------|----------|----------------|
+| Arbitrum Nova | 42170 | `0xd7454c00e705d724140b31DDc9A63E45cC0e1b9c` |
+| Arbitrum One | 42161 | `0x609B1430b6575590F5C75bcb7db261007d5FED41` |
+| Ethereum Mainnet | 1 | `0x609B1430b6575590F5C75bcb7db261007d5FED41` |
+| Gnosis Chain | 100 | `0x7bFF7F20Dd583e0665A5C62A06d2E78ee6f23a01` |
+
+## Documentation
+
+- **[User Guide](USER_GUIDE.md)**: Step-by-step instructions for using MoonBridge
+- **[Technical Specifications](SPECIFICATIONS.md)**: Complete technical documentation and architecture
+- **[Relayer Documentation](relayer/README.md)**: Setup and operation guide for running a relayer
+
+## Quick Start
+
+### For Users
+
+Visit [moonbridge.cc](https://moonbridge.cc) to bridge MOON tokens between supported chains.
+
+1. Connect your wallet
+2. Select source and destination chains
+3. Enter amount to bridge
+4. Approve and confirm transaction
+5. Receive tokens on destination chain (5-30 seconds)
+
+See [USER_GUIDE.md](USER_GUIDE.md) for detailed instructions.
+
+### For Developers
+
+```bash
+# Clone repository
+git clone https://github.com/r-cryptocurrency/moonbridge.git
+cd moonbridge
+
+# Install contract dependencies
+cd contracts
+forge install
+
+# Install relayer dependencies
+cd ../relayer
+npm install
+
+# Install frontend dependencies
+cd ../frontend
+npm install
+```
+
+See [SPECIFICATIONS.md](SPECIFICATIONS.md) for complete technical documentation.
+
+## Architecture
 
 ```
 ┌─────────────────┐         ┌─────────────────┐
-│  Arbitrum Nova  │         │  Arbitrum One   │
+│  Source Chain   │         │   Dest Chain    │
 │                 │         │                 │
 │  ┌───────────┐  │         │  ┌───────────┐  │
 │  │  Bridge   │  │◄───────►│  │  Bridge   │  │
@@ -19,38 +85,49 @@ DAO-owned, liquidity-backed fast bridge for MOON between Arbitrum Nova and Arbit
 │  │ Token   │    │         │  │ Token   │    │
 │  └─────────┘    │         │  └─────────┘    │
 └─────────────────┘         └─────────────────┘
-         ▲                           ▲
-         │                           │
-         └───────── Frontend ────────┘
-                (moonbridge.cc)
 ```
 
-## Features
+### Bridge Flow
 
-- **Fast bridging**: Liquidity-backed for instant transfers
-- **Partial fills**: Automatic partial fulfillment with refunds when liquidity is low
-- **No caps**: No per-transaction or daily limits
-- **DAO-controlled**: Multisig admin for pause, relayer management, fee updates
-- **Dual relayer**: Two relayers for redundancy, replay-protection prevents double payouts
-- **Transparent fees**: 1% fulfill fee, 1% refund fee (capped at 100 MOON), ETH relayer fee
+1. **Request**: User calls `requestBridge()` on source chain
+2. **Event**: `BridgeRequested` event emitted
+3. **Detection**: Relayer detects event and checks destination liquidity
+4. **Fulfillment**: Relayer calls `fulfillBridge()` on destination chain
+5. **Completion**: User receives tokens on destination chain
+
+For partial fills with insufficient liquidity, the relayer automatically processes a refund on the source chain for the unfulfilled portion.
+
+## Fee Structure
+
+### Normal Bridge (Full Liquidity)
+
+- **Bridge Fee**: 1% of amount
+- **Example**: Bridge 100 MOON → 1 MOON fee → Receive 99 MOON
+
+### Partial Fill (Insufficient Liquidity)
+
+- **Bridge Fee**: 1% of fulfilled amount
+- **Refund Fee**: 1% of refunded amount (capped at 100 MOON)
+- **Example**: Request 100 MOON, only 50 MOON available
+  - Receive 49.5 MOON on destination (50 - 1% fee)
+  - Refunded 49.5 MOON on source (50 - 1% fee)
+  - Total fees: 1 MOON
 
 ## Project Structure
 
 ```
 moonbridge/
-├── contracts/           # Solidity contracts (Foundry)
+├── contracts/           # Solidity smart contracts (Foundry)
 │   ├── src/
-│   │   └── Bridge.sol   # Main bridge contract
-│   ├── script/
-│   │   └── DeployBridge.s.sol
-│   ├── test/
-│   │   └── Bridge.t.sol
-│   └── foundry.toml
-├── relayer/             # Node.js relayer service
+│   │   ├── BridgeV2.sol
+│   │   ├── interfaces/
+│   │   └── libraries/
+│   ├── script/          # Deployment scripts
+│   └── test/            # Contract tests
+├── relayer/             # Automated relayer service
 │   ├── src/
-│   │   ├── index.js
-│   │   └── config.js
-│   └── package.json
+│   │   └── index-v2.js  # Main relayer
+│   └── README.md        # Relayer documentation
 └── frontend/            # Next.js web interface
     ├── src/
     │   ├── app/
@@ -60,131 +137,55 @@ moonbridge/
     └── package.json
 ```
 
-## Deployment Guide
+## Security
+
+- **Upgradeable Contracts**: UUPS proxy pattern for contract upgrades
+- **Replay Protection**: Unique bridge IDs prevent duplicate fulfillments
+- **Pausable**: Admin can pause bridge in emergencies
+- **Relayer Authorization**: Only authorized relayers can fulfill requests
+- **Reentrancy Guards**: All state-changing functions protected
+- **Multi-signature Admin**: Critical functions require multisig approval
+
+## Deployment
 
 ### Prerequisites
 
-- Node.js >= 18
+- Node.js 18+
 - Foundry (forge, cast, anvil)
-- Private keys for deployer and relayers
-- ETH on both chains for gas
+- Private keys for deployer and relayer
+- Native gas tokens on all chains
 
-### 1. Deploy Contracts
+### Contract Deployment
 
 ```bash
 cd contracts
 
-# Install dependencies
-forge install OpenZeppelin/openzeppelin-contracts --no-commit
-forge install foundry-rs/forge-std --no-commit
-
 # Build contracts
 forge build
 
-# Set environment variables
-export PRIVATE_KEY="0x..."
-export MOON_TOKEN="0x0057Ac2d777797d31CD3f8f13bF5e927571D6Ad0"  # Nova MOON
-export MULTISIG="0x..."  # Your multisig address
-export RELAYER_FEE_WEI="1000000000000000"  # 0.001 ETH
-export RELAYER_1="0x..."
-export RELAYER_2="0x..."
-
-# Deploy to Arbitrum Nova
+# Deploy to each chain
 forge script script/DeployBridge.s.sol:DeployBridge \
-  --rpc-url https://nova.arbitrum.io/rpc \
-  --broadcast \
-  --verify
-
-# Save the deployed address, then deploy to Arbitrum One
-# Update MOON_TOKEN for One chain
-export MOON_TOKEN="0x..."  # One MOON address
-
-forge script script/DeployBridge.s.sol:DeployBridge \
-  --rpc-url https://arb1.arbitrum.io/rpc \
+  --rpc-url <CHAIN_RPC_URL> \
   --broadcast \
   --verify
 ```
 
-### 2. Seed Liquidity
-
-```bash
-# Approve and transfer MOON to bridges
-# On Nova:
-cast send $MOON_TOKEN "approve(address,uint256)" $BRIDGE_NOVA $(cast --to-wei 100000 ether) \
-  --rpc-url https://nova.arbitrum.io/rpc \
-  --private-key $PRIVATE_KEY
-
-cast send $MOON_TOKEN "transfer(address,uint256)" $BRIDGE_NOVA $(cast --to-wei 100000 ether) \
-  --rpc-url https://nova.arbitrum.io/rpc \
-  --private-key $PRIVATE_KEY
-
-# Repeat for One chain
-```
-
-### 3. Verify Deployment
-
-```bash
-# Check bridge configuration
-export BRIDGE_ADDRESS="0x..."
-
-forge script script/DeployBridge.s.sol:VerifyDeployment \
-  --rpc-url https://nova.arbitrum.io/rpc
-
-# Check liquidity
-cast call $BRIDGE_ADDRESS "getAvailableLiquidity()" --rpc-url https://nova.arbitrum.io/rpc
-```
-
-### 4. Configure Relayer
+### Relayer Deployment
 
 ```bash
 cd relayer
 
-# Install dependencies
-npm install
+# Create .env file with RELAYER_PRIVATE_KEY
+echo "RELAYER_PRIVATE_KEY=0x..." > .env
 
-# Create .env file
-cp .env.example .env
-
-# Edit .env with your values:
-# - RELAYER_PRIVATE_KEY
-# - ARBITRUM_NOVA_RPC_URL
-# - ARBITRUM_ONE_RPC_URL
-# - BRIDGE_NOVA_ADDRESS
-# - BRIDGE_ONE_ADDRESS
-# - MOON_TOKEN_NOVA
-# - MOON_TOKEN_ONE
-```
-
-### 5. Run Relayer (Two VPS Setup)
-
-**VPS 1:**
-```bash
-cd relayer
-npm start
-```
-
-**VPS 2:**
-```bash
-cd relayer
-npm start
-```
-
-**Using PM2 for production:**
-```bash
-npm install -g pm2
-
-# Start relayer
-pm2 start src/index.js --name moonbridge-relayer
-
-# Save PM2 config
+# Run with PM2
+pm2 start ecosystem.config.cjs
 pm2 save
-pm2 startup
-
-# View logs
-pm2 logs moonbridge-relayer
 ```
 
-### 6. Deploy Frontend
+See [relayer/README.md](relayer/README.md) for detailed setup instructions.
+
+### Frontend Deployment
 
 ```bash
 cd frontend
@@ -192,118 +193,55 @@ cd frontend
 # Install dependencies
 npm install
 
-# Update contract addresses in src/config/index.ts
-
 # Build
 npm run build
 
 # Deploy to Vercel
 npx vercel --prod
-
-# Or deploy to your own server
-npm start
 ```
-
-## Contract Functions
-
-### User Functions
-
-| Function | Description |
-|----------|-------------|
-| `requestBridge(amount, destChainId, recipient)` | Request a bridge transfer (payable - send ETH fee) |
-| `cancelRequest(requestId)` | Cancel pending request (no ETH refund) |
-
-### Relayer Functions
-
-| Function | Description |
-|----------|-------------|
-| `fulfill(...)` | Fulfill a request on destination chain |
-| `refund(requestId, amount)` | Process refund on source chain |
-| `markCompleted(requestId)` | Mark full fulfill complete (pays ETH fee) |
-
-### Admin Functions (Multisig only)
-
-| Function | Description |
-|----------|-------------|
-| `pause()` / `unpause()` | Pause/unpause bridge |
-| `setRelayer(address, bool)` | Add/remove relayer |
-| `setRelayerFeeWei(uint256)` | Update ETH relayer fee |
-| `setMultisig(address)` | Transfer admin to new multisig |
-| `withdrawLiquidity(to, amount)` | Withdraw MOON liquidity |
-| `withdrawEth(to, amount)` | Emergency ETH withdrawal |
-
-## Fee Structure
-
-| Fee Type | Amount | Applied To |
-|----------|--------|------------|
-| ETH Relayer Fee | Configurable (e.g., 0.001 ETH) | All requests |
-| Fulfill Fee | 1% | Amount fulfilled on destination |
-| Refund Fee | 1% (max 100 MOON) | Amount refunded on source |
-
-### Example: Partial Fill
-
-User requests 1000 MOON, destination has 600 MOON liquidity:
-
-- **Fulfilled**: 600 MOON → Fee: 6 MOON → Recipient gets: 594 MOON
-- **Refunded**: 400 MOON → Fee: 4 MOON → User gets back: 396 MOON
-- **ETH Fee**: 0.001 ETH (paid to relayer)
-
-## Security Considerations
-
-1. **Replay Protection**: Each request has unique ID, tracked on both chains
-2. **Pause Switch**: Multisig can pause in emergencies
-3. **Relayer Allowlist**: Only authorized relayers can fulfill
-4. **Reentrancy Guards**: All state-changing functions protected
-5. **Dual Relayer**: Two relayers for redundancy without double-payout risk
 
 ## Monitoring
 
-### Key Events to Watch
+### Key Events
 
-- `BridgeRequested` - New bridge request created
-- `BridgeFulfilled` - Request fulfilled on destination
-- `BridgeRefunded` - Refund processed on source
-- `RequestCancelled` - User cancelled request
-- `PauseChanged` - Bridge paused/unpaused
+- `BridgeRequested`: New bridge request created
+- `BridgeFulfilled`: Request fulfilled on destination chain
+- `PartialFillRefunded`: Refund processed for partial fill
+- `BridgeRefunded`: User cancelled request
 
 ### Health Checks
 
-```bash
-# Check relayer ETH balance
-cast balance $RELAYER_ADDRESS --rpc-url https://nova.arbitrum.io/rpc
+The relayer provides comprehensive logging for all bridge operations:
 
-# Check bridge liquidity
-cast call $BRIDGE_ADDRESS "getAvailableLiquidity()" --rpc-url https://nova.arbitrum.io/rpc
-
-# Check if paused
-cast call $BRIDGE_ADDRESS "paused()" --rpc-url https://nova.arbitrum.io/rpc
+```
+✅ Relayer running!
+📬 Bridge Request Detected
+  Bridge ID: 0x...
+  From: Arbitrum One → Arbitrum Nova
+  Amount: 0.99 (after fee)
+  💧 Available liquidity: 5.998
+  🚀 Fulfilling 0.99...
+  ✅ Fulfilled! Block: 84554337
 ```
 
-## Troubleshooting
+## Contributing
 
-### Relayer not processing requests
-
-1. Check relayer ETH balance on both chains
-2. Verify bridge addresses in .env
-3. Check RPC connection
-4. Review relayer logs for errors
-
-### Transaction failing
-
-1. Check if bridge is paused
-2. Verify sufficient liquidity
-3. Check allowance for MOON token
-4. Ensure ETH fee is sufficient
-
-### Frontend not showing data
-
-1. Verify contract addresses in config
-2. Check RPC connectivity
-3. Ensure wallet is on correct chain
+Contributions are welcome! Please open an issue or submit a pull request.
 
 ## License
 
 MIT
+
+## Links
+
+- **Website**: [moonbridge.cc](https://moonbridge.cc)
+- **GitHub**: [github.com/r-cryptocurrency/moonbridge](https://github.com/r-cryptocurrency/moonbridge)
+- **User Guide**: [USER_GUIDE.md](USER_GUIDE.md)
+- **Technical Specs**: [SPECIFICATIONS.md](SPECIFICATIONS.md)
+
+## Support
+
+For issues or questions, please open a GitHub issue.
 
 ## Support
 
