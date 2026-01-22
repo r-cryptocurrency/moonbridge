@@ -10,7 +10,7 @@
 
 **License:** MIT
 
-**Target Networks:** Arbitrum Nova, Arbitrum One, Ethereum Mainnet, Gnosis Chain
+**Networks:** Arbitrum Nova, Arbitrum One, Ethereum Mainnet, Gnosis Chain
 
 ## Architecture Overview
 
@@ -44,7 +44,9 @@
 ### BridgeV2.sol
 
 **Type:** UUPS Upgradeable Proxy
+
 **Solidity Version:** ^0.8.20
+
 **Pattern:** Proxy + Implementation
 
 #### Key Features
