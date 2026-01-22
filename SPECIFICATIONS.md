@@ -3,9 +3,13 @@
 ## Project Overview
 
 **Name:** MoonBridge V2
+
 **Type:** Multi-chain, multi-asset bridge with liquidity provider functionality
+
 **Version:** 2.0.0
+
 **License:** MIT
+
 **Target Networks:** Arbitrum Nova, Arbitrum One, Ethereum Mainnet, Gnosis Chain
 
 ## Architecture Overview
