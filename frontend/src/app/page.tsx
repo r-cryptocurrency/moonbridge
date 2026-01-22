@@ -26,13 +26,17 @@ function FeeBreakdown({
   relayerFee,
   assetSymbol,
   decimals,
+  chainId,
 }: {
   amount: bigint;
   effectiveDestLiquidity: bigint;
   relayerFee: bigint;
   assetSymbol: string;
   decimals: number;
+  chainId: number;
 }) {
+  // Get native currency symbol for the chain
+  const nativeCurrency = chainId === 100 ? 'xDAI' : 'ETH';
   const fees = useMemo(() => {
     if (amount <= BigInt(0)) return null;
     return calculateFees(amount, effectiveDestLiquidity);
@@ -97,9 +101,9 @@ function FeeBreakdown({
 
         <div className="border-t border-space-600 my-2" />
         <div className="flex justify-between">
-          <span className="text-gray-500">ETH Relayer Fee:</span>
+          <span className="text-gray-500">{nativeCurrency} Relayer Fee:</span>
           <span className="text-white font-mono">
-            {parseFloat(formatEther(relayerFee)).toFixed(6)} ETH
+            {parseFloat(formatEther(relayerFee)).toFixed(6)} {nativeCurrency}
           </span>
         </div>
       </div>
@@ -373,6 +377,7 @@ function BridgeTab({
           relayerFee={relayerFee}
           assetSymbol={asset.symbol}
           decimals={asset.decimals}
+          chainId={sourceChain}
         />
       )}
 
@@ -412,9 +417,9 @@ function BridgeTab({
         )}
       </div>
 
-      {/* ETH fee note */}
+      {/* Relayer fee note */}
       <p className="mt-3 text-xs text-center text-gray-500">
-        Relayer fee: {parseFloat(formatEther(relayerFee)).toFixed(6)} ETH
+        Relayer fee: {parseFloat(formatEther(relayerFee)).toFixed(6)} {sourceChain === 100 ? 'xDAI' : 'ETH'}
       </p>
     </>
   );
