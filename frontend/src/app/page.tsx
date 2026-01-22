@@ -926,8 +926,7 @@ export default function HomePage() {
 
         {/* Info section */}
         <div className="mt-8 text-center text-sm text-gray-500">
-          <p>DAO-owned bridge • No per-transaction limits</p>
-          <p className="mt-1">1% fee on fulfilled amount • 1% fee on refunds</p>
+          <p>1% fee on fulfilled amount • 1% fee on refunds</p>
         </div>
       </main>
 
