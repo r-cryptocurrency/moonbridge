@@ -212,6 +212,7 @@ function unpause() external onlyOwner
 ### LPToken.sol
 
 **Type:** ERC20 Token (Minimal Proxy)
+
 **Pattern:** Clone/Minimal Proxy (EIP-1167)
 
 #### Specifications
@@ -737,13 +738,13 @@ RELAYER_FEES = {
 // Slot 56+: mappings and additional state
 ```
 
-### V1 to V2 Migration
+### Upgrade Migration SOP
 
-1. Pause V1 contracts
-2. Complete all pending V1 requests
-3. Withdraw V1 liquidity
-4. Deploy V2 contracts
-5. Seed V2 liquidity
+1. Pause all contracts
+2. Complete all pending requests
+3. Withdraw all liquidity
+4. Deploy new contracts
+5. Seed new liquidity
 6. Update relayer and frontend
 7. Announce to community
 
@@ -815,10 +816,6 @@ function burn(address from, uint256 amount) external;
 ### Documentation
 
 - [README.md](./README.md) - Project overview
-- [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) - Comprehensive deployment guide
-- [V2_CHANGES_SUMMARY.md](./V2_CHANGES_SUMMARY.md) - V1 → V2 changes
-- [RELAYER_FEE_IMPLEMENTATION.md](./RELAYER_FEE_IMPLEMENTATION.md) - Relayer fee details
-- [QUICK_START_V2.md](./QUICK_START_V2.md) - Quick deployment guide
 - [SPECIFICATIONS.md](./SPECIFICATIONS.md) - This document
 
 ### External Resources
@@ -832,15 +829,15 @@ function burn(address from, uint256 amount) external;
 ### Community
 
 - **GitHub:** https://github.com/r-cryptocurrency/moonbridge
-- **Subreddit:** r/CryptoCurrency
-- **Website:** moonbridge.cc
+- **Subreddit:** [r/CryptoCurrency](https://www.reddit.com/r/CryptoCurrency)
+- **Website:** https://moonbridge.cc
 
 ## Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.0.0 | Dec 2025 | Initial release (2 chains, MOON only) |
-| 2.0.0 | Jan 2026 | Multi-chain, multi-asset, LP system, relayer fees |
+| 0.1.0 | Dec 2025 | Initial release (2 chains, MOON only) |
+| 1.0.0 | Jan 2026 | Multi-chain, multi-asset, LP system, relayer fees |
 
 ## License
 
@@ -850,4 +847,4 @@ MIT License - See LICENSE file for details
 
 **Last Updated:** January 2026
 **Document Version:** 1.0.0
-**Contract Version:** 2.0.0
+**Contract Version:** 1.0.0
