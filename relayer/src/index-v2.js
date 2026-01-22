@@ -22,7 +22,7 @@ const CHAINS = {
   42170: { chain: arbitrumNova, name: 'Arbitrum Nova', rpc: 'https://nova.arbitrum.io/rpc', confirmations: 2 },
   42161: { chain: arbitrum, name: 'Arbitrum One', rpc: 'https://arb1.arbitrum.io/rpc', confirmations: 2 },
   1: { chain: mainnet, name: 'Ethereum', rpc: 'https://eth.llamarpc.com', confirmations: 3 },
-  100: { chain: gnosis, name: 'Gnosis', rpc: 'https://rpc.gnosischain.com', confirmations: 2 },
+  100: { chain: gnosis, name: 'Gnosis', rpc: 'https://gnosis.drpc.org', confirmations: 2 },
 };
 
 // V2 Bridge ABI
@@ -290,7 +290,7 @@ function watchBridgeRequests(clients, chainId) {
   return unwatch;
 }
 
-// Process historical requests (last 1000 blocks)
+// Process historical requests (last 10,000 blocks)
 async function processHistoricalRequests(clients, chainId) {
   const client = clients[chainId];
 
@@ -298,7 +298,7 @@ async function processHistoricalRequests(clients, chainId) {
 
   try {
     const currentBlock = await client.public.getBlockNumber();
-    const fromBlock = currentBlock - 1000n < 0n ? 0n : currentBlock - 1000n;
+    const fromBlock = currentBlock - 10000n < 0n ? 0n : currentBlock - 10000n;
 
     const logs = await client.public.getLogs({
       address: client.bridgeAddress,
