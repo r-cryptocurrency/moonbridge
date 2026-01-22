@@ -240,7 +240,7 @@ function BridgeTab({
     // Compare what crosses to what's available on destination
     if (bridgeAmount > effectiveDestLiquidity) {
       if (effectiveDestLiquidity === BigInt(0)) {
-        return `No liquidity available on destination chain. Transaction will fail.`;
+        return `No liquidity available on destination chain. Transaction will be refunded (minus fees).`;
       }
       return `Only ${parseFloat(formatUnits(effectiveDestLiquidity, asset.decimals)).toFixed(2)} ${asset.symbol} available on destination. You will receive a partial fill with refund.`;
     }
