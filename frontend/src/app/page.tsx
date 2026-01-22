@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { useAccount, useChainId, useSwitchChain } from 'wagmi';
+import { useAccount, useChainId, useSwitchChain, useBalance } from 'wagmi';
 import { formatEther, parseEther, formatUnits, parseUnits, type Address } from 'viem';
 import { useBridge, useLiquidity } from '@/hooks/useBridge';
 import {
@@ -742,6 +742,14 @@ export default function HomePage() {
   const [destChain, setDestChain] = useState<number>(CHAIN_IDS.ARBITRUM_ONE);
   const [selectedAsset, setSelectedAsset] = useState<string>(ASSET_IDS.MOON);
 
+  // Get wallet info for custom balance display
+  const { address } = useAccount();
+  const chainId = useChainId();
+  const { data: balance } = useBalance({
+    address: address,
+    chainId: chainId,
+  });
+
   // Get available assets and destinations
   const availableAssets = useMemo(() => getAvailableAssets(sourceChain), [sourceChain]);
   const availableDestinations = useMemo(() =>
@@ -889,8 +897,8 @@ export default function HomePage() {
                             cursor: 'pointer',
                           }}
                         >
-                          {account.displayBalance
-                            ? `${parseFloat(account.displayBalance.split(' ')[0]).toFixed(3)} ${account.displayBalance.split(' ')[1]}`
+                          {balance
+                            ? `${parseFloat(formatEther(balance.value)).toFixed(3)} ${balance.symbol}`
                             : ''}
                           {' '}
                           {account.displayName}
