@@ -318,7 +318,7 @@ For issues or questions:
 
 ## Version History
 
-### V2.0.0 (Current)
+### V1.0.0 (Current)
 - Complete rewrite for V2 bridge contracts
 - Support for partial fills with automatic refunds
 - Multi-chain support (4 chains)
@@ -327,7 +327,7 @@ For issues or questions:
 - Per-chain historical block limits
 - PM2 ecosystem configuration
 
-### V1.0.0 (Archived)
+### V0.1.0 (Beta)
 - Initial release
 - Basic bridge fulfillment
 - 2-chain support
