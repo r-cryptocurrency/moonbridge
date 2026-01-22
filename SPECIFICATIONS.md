@@ -836,8 +836,8 @@ function burn(address from, uint256 amount) external;
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.0.0 | Dec 2025 | Initial release (2 chains, MOON only) |
-| 2.0.0 | Jan 2026 | Multi-chain, multi-asset, LP system, relayer fees |
+| 0.1.0 | Dec 2025 | Initial release (2 chains, MOON only) |
+| 1.0.0 | Jan 2026 | Multi-chain, multi-asset, LP system, relayer fees |
 
 ## License
 
@@ -847,4 +847,4 @@ MIT License - See LICENSE file for details
 
 **Last Updated:** January 2026
 **Document Version:** 1.0.0
-**Contract Version:** 2.0.0
+**Contract Version:** 1.0.0

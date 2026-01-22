@@ -25,7 +25,7 @@ Visit the bridge at: **https://moonbridge.cc**
 
 1. Visit https://moonbridge.cc
 2. Click "Connect Wallet" in the top right
-3. Select your wallet (MetaMask, Rabby, Rainbow, Coinbase Wallet, etc.)
+3. Select your wallet (MetaMask, Rainbow, Coinbase Wallet, etc.)
 4. Approve the connection
 
 ### Step 2: Select Source and Destination
@@ -57,7 +57,7 @@ If this is your first time bridging this token:
 1. Click "Bridge [TOKEN]"
 2. Confirm the transaction in your wallet
 3. Wait for confirmation (~5-30 seconds on source chain)
-4. Your tokens should arrive on the destination chain within 30 seconds
+4. Your tokens will arrive on the destination chain within 30 seconds
 
 ## Fees Explained
 
@@ -67,7 +67,7 @@ If this is your first time bridging this token:
 
 **Relayer Fee: ~0.0001-0.0005 ETH**
 - Covers gas costs on the destination chain
-- Paid in ETH/xDAI on the source chain
+- Paid in ETH on the source chain
 - Varies by destination chain (Ethereum is higher, L2s are cheaper)
 
 **Example**:
@@ -85,7 +85,7 @@ MoonBridge supports **partial fills**. If there's not enough liquidity:
 - Only 50 MOON available
 - You receive: 49.5 MOON on destination (1% fee on 50)
 - Refund: 49.5 MOON back on source (1% fee on 50)
-- Total fees: 1 MOON 
+- Total fees: 2 MOON (1 MOON for each half)
 
 You'll see a warning before bridging if liquidity is insufficient.
 
@@ -172,7 +172,7 @@ This means there aren't enough tokens in the liquidity pool on the destination c
 1. Check block explorer to see transaction status
 2. Make sure you have enough ETH/native gas on source chain
 3. Try increasing gas limit or gas price
-4. Message officers of the CCMOON DAO to troubleshoot.
+4. Join the Discord for support
 
 ### Tokens haven't arrived
 
@@ -204,7 +204,8 @@ This means there aren't enough tokens in the liquidity pool on the destination c
 ## Getting Help
 
 - **GitHub**: https://github.com/r-cryptocurrency/moonbridge
-- **Reddit**: Modmail in r/CryptoCurrency
+- **Discord**: [Join r/CryptoCurrency Discord]
+- **Reddit**: Post in r/CryptoCurrency
 
 ## Bridge Statistics
 
@@ -218,6 +219,10 @@ For developers and advanced users, see:
 - **README.md** - Project overview and architecture
 - **SPECIFICATIONS.md** - Technical specifications
 - **relayer/README.md** - Relayer documentation
+
+## Version
+
+MoonBridge V2 - Supports partial fills with automatic refunds
 
 ---
 

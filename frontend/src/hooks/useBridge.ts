@@ -153,14 +153,14 @@ export function useLiquidity(chainId: number, assetId: string) {
   const { data: assetConfig } = useReadContract({
     address: bridgeAddress,
     abi: BRIDGE_ABI,
-    functionName: 'assetConfigs',
+    functionName: 'getAssetConfig',
     args: [assetBytes32],
     chainId: chainId,
     query: { enabled: !!bridgeAddress },
   });
 
-  // AssetConfig struct: [enabled, tokenAddress, lpTokenAddress, lpFeeBps, daoFeeBps, minBridgeAmount, maxBridgeAmount]
-  const lpTokenAddress = assetConfig ? (assetConfig as any)[2] : undefined;
+  // Extract lpTokenAddress from the struct
+  const lpTokenAddress = assetConfig?.lpTokenAddress as Address | undefined;
 
   // LP token balance
   const { data: lpBalance, refetch: refetchLPBalance } = useReadContract({

@@ -310,6 +310,27 @@ export const BRIDGE_ABI = [
       },
     ],
   },
+  {
+    type: 'function',
+    name: 'getAssetConfig',
+    stateMutability: 'view',
+    inputs: [{ name: 'assetId', type: 'bytes32' }],
+    outputs: [
+      {
+        name: '',
+        type: 'tuple',
+        components: [
+          { name: 'enabled', type: 'bool' },
+          { name: 'tokenAddress', type: 'address' },
+          { name: 'lpTokenAddress', type: 'address' },
+          { name: 'lpFeeBps', type: 'uint16' },
+          { name: 'daoFeeBps', type: 'uint16' },
+          { name: 'minBridgeAmount', type: 'uint256' },
+          { name: 'maxBridgeAmount', type: 'uint256' },
+        ],
+      },
+    ],
+  },
   // Events
   {
     type: 'event',

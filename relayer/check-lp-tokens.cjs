@@ -1,6 +1,6 @@
 // Script to check LP token bridge addresses
-import { createPublicClient, http } from 'viem';
-import { arbitrumNova, arbitrum, mainnet, gnosis } from 'viem/chains';
+const { createPublicClient, http } = require('viem');
+const { arbitrumNova, arbitrum, mainnet, gnosis } = require('viem/chains');
 
 // Bridge proxy addresses (from DEPLOYMENT_COMPLETE.md)
 const BRIDGE_ADDRESSES = {
@@ -92,15 +92,10 @@ async function checkLPTokens() {
           args: [assetId],
         });
 
-        console.log(`  ${assetName}:`);
-        console.log(`    Raw assetConfig:`, assetConfig);
-
-        const enabled = assetConfig[0];
-        const tokenAddress = assetConfig[1];
-        const lpTokenAddress = assetConfig[2];
+        const [enabled, tokenAddress, lpTokenAddress] = assetConfig;
 
         if (!enabled) {
-          console.log(`    Status: ❌ Not enabled on this chain`);
+          console.log(`  ${assetName}: Not enabled on this chain`);
           continue;
         }
 

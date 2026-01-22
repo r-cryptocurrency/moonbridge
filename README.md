@@ -242,7 +242,3 @@ MIT
 ## Support
 
 For issues or questions, please open a GitHub issue.
-
-## Support
-
-For issues, please open a GitHub issue or contact the DAO.
