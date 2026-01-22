@@ -139,11 +139,11 @@ export const BRIDGE_ABI = [
     inputs: [
       { name: 'bridgeId', type: 'bytes32', indexed: true },
       { name: 'assetId', type: 'bytes32', indexed: true },
-      { name: 'fromChainId', type: 'uint256', indexed: true },
-      { name: 'toChainId', type: 'uint256', indexed: false },
-      { name: 'requester', type: 'address', indexed: false },
+      { name: 'sender', type: 'address', indexed: true },
       { name: 'recipient', type: 'address', indexed: false },
       { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'toChainId', type: 'uint256', indexed: false },
+      { name: 'fee', type: 'uint256', indexed: false },
     ],
   },
   {
