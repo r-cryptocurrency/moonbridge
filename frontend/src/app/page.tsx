@@ -498,6 +498,33 @@ function LiquidityTab({
     isNativeAsset,
   } = useLiquidity(sourceChain, selectedAsset);
 
+  // Helper function to switch chains with error handling
+  const handleSwitchChain = async (targetChainId: number) => {
+    try {
+      await switchChain({ chainId: targetChainId });
+    } catch (error: any) {
+      console.error('Failed to switch chain:', error);
+      if (error?.code === 4902 || error?.message?.includes('Unrecognized chain') || error?.message?.includes('does not match')) {
+        try {
+          const chainMeta = CHAIN_META[targetChainId as keyof typeof CHAIN_META];
+          await (window as any).ethereum?.request({
+            method: 'wallet_addEthereumChain',
+            params: [{
+              chainId: `0x${targetChainId.toString(16)}`,
+              chainName: chainMeta.name,
+              rpcUrls: [chainMeta.chain.rpcUrls.default.http[0]],
+              nativeCurrency: chainMeta.chain.nativeCurrency,
+              blockExplorerUrls: [chainMeta.explorer],
+            }],
+          });
+        } catch (addError) {
+          console.error('Failed to add chain:', addError);
+          alert(`Please add ${CHAIN_META[targetChainId as keyof typeof CHAIN_META].name} to your wallet manually.`);
+        }
+      }
+    }
+  };
+
   // Parse amounts
   const depositBigInt = useMemo(() => {
     try {
