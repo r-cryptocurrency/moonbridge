@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useChainId, useSwitchChain } from 'wagmi';
 import { formatEther, parseEther, formatUnits, parseUnits, type Address } from 'viem';
-import { useBridge, useLiquidity } from '@/hooks/useBridge';
+import { useBridge, useLiquidity, useMigration } from '@/hooks/useBridge';
 import {
   CHAIN_IDS,
   CHAIN_META,
@@ -467,6 +467,8 @@ function LiquidityTab({
 
   const [depositAmount, setDepositAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [migrateAmount, setMigrateAmount] = useState('');
+  const [migrateDestChain, setMigrateDestChain] = useState<number>(0);
 
   const sourceMeta = CHAIN_META[sourceChain as keyof typeof CHAIN_META];
   const asset = ASSETS[selectedAsset as keyof typeof ASSETS];
@@ -542,6 +544,30 @@ function LiquidityTab({
     }
   }, [withdrawAmount, asset.decimals]);
 
+  const migrateBigInt = useMemo(() => {
+    try {
+      return migrateAmount ? parseUnits(migrateAmount, asset.decimals) : BigInt(0);
+    } catch {
+      return BigInt(0);
+    }
+  }, [migrateAmount, asset.decimals]);
+
+  // Migration state for moving this LP position to another chain
+  const {
+    quoteValue,
+    quoteFee,
+    quoteNet,
+    requestMigration,
+    isMigrating,
+    isMigrateSuccess,
+    refetchLPBalance: refetchMigrateLPBalance,
+  } = useMigration(sourceChain, selectedAsset, migrateBigInt);
+
+  const availableMigrationDests = useMemo(
+    () => getAvailableDestinations(sourceChain, selectedAsset),
+    [sourceChain, selectedAsset]
+  );
+
   // Check if approvals needed
   const needsDepositApproval = useMemo(() => {
     if (isNativeAsset) return false;
@@ -582,6 +608,21 @@ function LiquidityTab({
       setWithdrawAmount('');
     }
   }, [isWithdrawSuccess, refetchAssetBalance, refetchLPBalance, refetchPoolLiquidity]);
+
+  // Keep the migration destination valid for the selected chain/asset
+  useEffect(() => {
+    if (!availableMigrationDests.includes(migrateDestChain)) {
+      setMigrateDestChain(availableMigrationDests[0] ?? 0);
+    }
+  }, [availableMigrationDests, migrateDestChain]);
+
+  useEffect(() => {
+    if (isMigrateSuccess) {
+      refetchLPBalance();
+      refetchMigrateLPBalance();
+      setMigrateAmount('');
+    }
+  }, [isMigrateSuccess, refetchLPBalance, refetchMigrateLPBalance]);
 
   return (
     <>
@@ -731,6 +772,108 @@ function LiquidityTab({
           </button>
         )}
       </div>
+
+      {/* Migrate section */}
+      {availableMigrationDests.length > 0 && (
+        <div className="mt-6 pt-6 border-t border-space-700">
+          <h3 className="text-lg font-semibold text-white mb-1">Migrate Liquidity</h3>
+          <p className="text-xs text-gray-500 mb-3">
+            Move your LP position to another chain. It burns here and mints the same value as LP on the destination. 1% fee.
+          </p>
+
+          <div className="mb-3">
+            <label className="text-sm text-gray-400 mb-2 block">Destination Chain</label>
+            <select
+              value={migrateDestChain}
+              onChange={(e) => setMigrateDestChain(Number(e.target.value))}
+              className="input-field w-full"
+            >
+              {availableMigrationDests.map((cid) => (
+                <option key={cid} value={cid}>
+                  {CHAIN_META[cid as keyof typeof CHAIN_META].name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="mb-3">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm text-gray-400">LP Tokens to Migrate</label>
+              {lpBalance !== undefined && (
+                <button
+                  onClick={() => setMigrateAmount(formatUnits(lpBalance, asset.decimals))}
+                  className="text-xs text-moon-400 hover:text-moon-300"
+                >
+                  Max: {parseFloat(formatUnits(lpBalance, asset.decimals)).toFixed(4)}
+                </button>
+              )}
+            </div>
+            <input
+              type="text"
+              value={migrateAmount}
+              onChange={(e) => setMigrateAmount(e.target.value)}
+              placeholder="0.00"
+              className="input-field"
+            />
+          </div>
+
+          {migrateBigInt > BigInt(0) && quoteNet !== undefined && (
+            <div className="mb-3 p-3 bg-space-900/50 rounded-xl border border-space-600 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Position Value:</span>
+                <span className="text-white font-mono">
+                  {parseFloat(formatUnits(quoteValue ?? BigInt(0), asset.decimals)).toFixed(4)} {asset.symbol}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Migration Fee (1%):</span>
+                <span className="text-moon-400 font-mono">
+                  -{parseFloat(formatUnits(quoteFee ?? BigInt(0), asset.decimals)).toFixed(4)} {asset.symbol}
+                </span>
+              </div>
+              <div className="flex justify-between font-medium">
+                <span className="text-gray-400">
+                  Arrives on {CHAIN_META[migrateDestChain as keyof typeof CHAIN_META]?.shortName}:
+                </span>
+                <span className="text-green-400 font-mono">
+                  {parseFloat(formatUnits(quoteNet ?? BigInt(0), asset.decimals)).toFixed(4)} {asset.symbol} value
+                </span>
+              </div>
+            </div>
+          )}
+
+          {!isConnected ? (
+            <ConnectButton.Custom>
+              {({ openConnectModal }) => (
+                <button onClick={openConnectModal} className="btn-primary w-full">
+                  Connect Wallet
+                </button>
+              )}
+            </ConnectButton.Custom>
+          ) : chainId !== sourceChain ? (
+            <button
+              onClick={() => handleSwitchChain(sourceChain)}
+              className="btn-primary w-full"
+            >
+              Switch to {sourceMeta.shortName}
+            </button>
+          ) : (
+            <button
+              onClick={() => requestMigration(migrateBigInt, migrateDestChain)}
+              disabled={isMigrating || migrateBigInt <= BigInt(0) || !lpBalance || migrateBigInt > lpBalance || !migrateDestChain}
+              className="btn-primary w-full"
+            >
+              {isMigrating
+                ? 'Migrating...'
+                : `Migrate to ${CHAIN_META[migrateDestChain as keyof typeof CHAIN_META]?.shortName ?? '...'}`}
+            </button>
+          )}
+
+          <p className="mt-2 text-xs text-center text-gray-500">
+            Arrives after the relayer confirms the burn. Value is preserved; the LP token count on the destination may differ.
+          </p>
+        </div>
+      )}
     </>
   );
 }

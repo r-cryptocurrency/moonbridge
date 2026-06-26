@@ -54,6 +54,7 @@ contract LPToken is ERC20, ILPToken {
         address bridge_
     ) external override {
         if (_initialized) revert AlreadyInitialized();
+        if (bridge_ == address(0)) revert OnlyBridge();
         _initialized = true;
 
         _tokenName = name_;

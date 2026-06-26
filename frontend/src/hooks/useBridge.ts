@@ -385,3 +385,78 @@ export function useLiquidity(chainId: number, assetId: string) {
     isNativeAsset: isNative,
   };
 }
+
+// Hook for migrating an LP position to another chain.
+// No token approval is needed: the bridge burns the caller's LP directly.
+export function useMigration(chainId: number, assetId: string, lpTokenAmount: bigint) {
+  const { address } = useAccount();
+  const bridgeAddress = BRIDGE_ADDRESSES[chainId as keyof typeof BRIDGE_ADDRESSES];
+  const assetBytes32 = assetIdToBytes32(assetId);
+
+  // LP token address from asset config
+  const { data: assetConfig } = useReadContract({
+    address: bridgeAddress,
+    abi: BRIDGE_ABI,
+    functionName: 'getAssetConfig',
+    args: [assetBytes32],
+    chainId: chainId,
+    query: { enabled: !!bridgeAddress },
+  });
+  const lpTokenAddress = assetConfig?.lpTokenAddress as Address | undefined;
+
+  // LP balance on this chain
+  const { data: lpBalance, refetch: refetchLPBalance } = useReadContract({
+    address: lpTokenAddress,
+    abi: LP_TOKEN_ABI,
+    functionName: 'balanceOf',
+    args: address ? [address] : undefined,
+    chainId: chainId,
+    query: { enabled: !!address && !!lpTokenAddress },
+  });
+
+  // Quote: value, fee, net for the entered amount
+  const { data: quote } = useReadContract({
+    address: bridgeAddress,
+    abi: BRIDGE_ABI,
+    functionName: 'quoteMigration',
+    args: address ? [assetBytes32, lpTokenAmount, address] : undefined,
+    chainId: chainId,
+    query: { enabled: !!bridgeAddress && !!address && lpTokenAmount > BigInt(0) },
+  });
+  const quoteTuple = quote as readonly [bigint, bigint, bigint] | undefined;
+
+  const { writeContract: writeMigrate, data: migrateHash, isPending: isMigrating, reset: resetMigrate } = useWriteContract();
+  const { isLoading: isMigrateConfirming, isSuccess: isMigrateSuccess } = useWaitForTransactionReceipt({
+    hash: migrateHash,
+  });
+
+  useEffect(() => {
+    if (isMigrateSuccess) {
+      const timer = setTimeout(() => resetMigrate(), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [isMigrateSuccess, resetMigrate]);
+
+  const requestMigration = async (lpAmount: bigint, toChainId: number) => {
+    if (!bridgeAddress) return;
+    writeMigrate({
+      address: bridgeAddress,
+      abi: BRIDGE_ABI,
+      functionName: 'requestLPMigration',
+      args: [assetBytes32, lpAmount, BigInt(toChainId)],
+    });
+  };
+
+  return {
+    lpBalance: lpBalance as bigint | undefined,
+    lpTokenAddress,
+    quoteValue: quoteTuple?.[0],
+    quoteFee: quoteTuple?.[1],
+    quoteNet: quoteTuple?.[2],
+    requestMigration,
+    isMigrating: isMigrating || isMigrateConfirming,
+    isMigrateSuccess,
+    migrateHash,
+    refetchLPBalance,
+  };
+}

@@ -96,6 +96,51 @@ interface IBridgeV2 {
         uint256 amount
     );
 
+    event RelayerUpdated(address indexed oldRelayer, address indexed newRelayer);
+
+    event DaoWalletUpdated(address indexed oldWallet, address indexed newWallet);
+
+    event FeeWhitelistUpdated(address indexed account, bool whitelisted);
+
+    event SurplusRescued(
+        bytes32 indexed assetId,
+        address indexed to,
+        uint256 amount
+    );
+
+    event PoolReconciled(
+        bytes32 indexed assetId,
+        uint256 oldTotalDeposited,
+        uint256 newTotalDeposited,
+        uint256 oldAccumulatedFees,
+        uint256 newAccumulatedFees
+    );
+
+    event LPMigrationRequested(
+        bytes32 indexed migrationId,
+        bytes32 indexed assetId,
+        address indexed account,
+        uint256 net,
+        uint256 fee,
+        uint256 fromChainId,
+        uint256 toChainId
+    );
+
+    event LPMigrationFulfilled(
+        bytes32 indexed migrationId,
+        bytes32 indexed assetId,
+        address indexed recipient,
+        uint256 value,
+        uint256 lpMinted,
+        uint256 fromChainId
+    );
+
+    event MigrationRelayerUpdated(address indexed account, bool enabled);
+
+    event MigrationFeeWhitelistUpdated(address indexed account, bool whitelisted);
+
+    event MigrationConfigured(uint16 feeBps, uint256 maxValue);
+
     // ============ Errors ============
 
     error AssetNotEnabled();
@@ -220,6 +265,64 @@ interface IBridgeV2 {
 
     /// @notice Unpause the bridge
     function unpause() external;
+
+    /// @notice Set fee whitelist status for an address
+    /// @param account Address to update
+    /// @param whitelisted Whether the address is exempt from fees
+    function setFeeWhitelist(address account, bool whitelisted) external;
+
+    /// @notice Recover surplus tokens not backed by LP/protocol obligations
+    /// @param assetId The asset to rescue
+    /// @param to Recipient of the rescued tokens
+    /// @param amount Amount to rescue (must not exceed getRescuableSurplus)
+    function adminRescueSurplus(bytes32 assetId, address to, uint256 amount) external;
+
+    /// @notice Owner-only reconciliation of pool accounting to a target principal/fee value
+    /// @param assetId The asset to reconcile
+    /// @param newTotalDeposited New principal value for the pool
+    /// @param newAccumulatedFees New accumulated-fees value for the pool
+    function reconcilePool(
+        bytes32 assetId,
+        uint256 newTotalDeposited,
+        uint256 newAccumulatedFees
+    ) external;
+
+    /// @notice Tokens held beyond all LP and protocol obligations (rescuable)
+    function getRescuableSurplus(bytes32 assetId) external view returns (uint256);
+
+    // ============ LP Migration ============
+
+    /// @notice Burn LP here and migrate its MOON value to be minted as LP on another chain
+    function requestLPMigration(
+        bytes32 assetId,
+        uint256 lpTokenAmount,
+        uint256 toChainId
+    ) external;
+
+    /// @notice Relayer-gated mint of migrated value on the destination chain
+    function fulfillLPMigration(
+        bytes32 migrationId,
+        bytes32 assetId,
+        address recipient,
+        uint256 value,
+        uint256 fromChainId
+    ) external;
+
+    /// @notice Authorize or revoke an LP-migration relayer
+    function setMigrationRelayer(address account, bool enabled) external;
+
+    /// @notice Set zero-fee status for an address migrating LP
+    function setMigrationFeeWhitelist(address account, bool whitelisted) external;
+
+    /// @notice Set the migration fee (bps) and the per-migration max value (0 = unlimited)
+    function configureMigration(uint16 feeBps, uint256 maxValue) external;
+
+    /// @notice Quote the value, fee, and net for a prospective migration
+    function quoteMigration(
+        bytes32 assetId,
+        uint256 lpTokenAmount,
+        address account
+    ) external view returns (uint256 value, uint256 fee, uint256 net);
 
     // ============ View Functions ============
 

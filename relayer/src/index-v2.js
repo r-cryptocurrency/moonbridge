@@ -44,29 +44,33 @@ const CHAINS = {
   42170: {
     chain: arbitrumNova,
     name: 'Arbitrum Nova',
-    rpc: 'https://nova.arbitrum.io/rpc',
+    rpc: process.env.ARBITRUM_NOVA_RPC_URL || 'https://nova.arbitrum.io/rpc',
     confirmations: 2,
+    migrationConfirmations: 10, // burns wait this many source confirmations before minting
     maxHistoricalBlocks: 10000,
   },
   42161: {
     chain: arbitrum,
     name: 'Arbitrum One',
-    rpc: 'https://arb1.arbitrum.io/rpc',
+    rpc: process.env.ARBITRUM_ONE_RPC_URL || 'https://arb1.arbitrum.io/rpc',
     confirmations: 2,
+    migrationConfirmations: 10,
     maxHistoricalBlocks: 10000,
   },
   1: {
     chain: mainnet,
     name: 'Ethereum',
-    rpc: 'https://eth.llamarpc.com',
+    rpc: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
     confirmations: 3,
-    maxHistoricalBlocks: 1000, // LlamaRPC has 1k block limit
+    migrationConfirmations: 3,
+    maxHistoricalBlocks: 1000, // public RPCs may cap getLogs ranges
   },
   100: {
     chain: gnosis,
     name: 'Gnosis',
-    rpc: 'https://gnosis.drpc.org',
+    rpc: process.env.GNOSIS_RPC_URL || 'https://gnosis.drpc.org',
     confirmations: 2,
+    migrationConfirmations: 10,
     maxHistoricalBlocks: 10000,
   },
 };
@@ -143,6 +147,50 @@ const BRIDGE_ABI = [
     ],
     outputs: [],
   },
+  // LPMigrationRequested event - Emitted when a user burns LP to migrate to another chain
+  {
+    type: 'event',
+    name: 'LPMigrationRequested',
+    inputs: [
+      { name: 'migrationId', type: 'bytes32', indexed: true },
+      { name: 'assetId', type: 'bytes32', indexed: true },
+      { name: 'account', type: 'address', indexed: true },
+      { name: 'net', type: 'uint256', indexed: false },
+      { name: 'fee', type: 'uint256', indexed: false },
+      { name: 'fromChainId', type: 'uint256', indexed: false },
+      { name: 'toChainId', type: 'uint256', indexed: false },
+    ],
+  },
+  // View function - Check if a migration has been fulfilled on the destination
+  {
+    type: 'function',
+    name: 'processedMigrations',
+    stateMutability: 'view',
+    inputs: [{ name: 'migrationId', type: 'bytes32' }],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+  // View function - Free (unclaimed) MOON available to back a migrated claim
+  {
+    type: 'function',
+    name: 'getRescuableSurplus',
+    stateMutability: 'view',
+    inputs: [{ name: 'assetId', type: 'bytes32' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  // Write function - Mint migrated value as LP on the destination chain
+  {
+    type: 'function',
+    name: 'fulfillLPMigration',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'migrationId', type: 'bytes32' },
+      { name: 'assetId', type: 'bytes32' },
+      { name: 'recipient', type: 'address' },
+      { name: 'value', type: 'uint256' },
+      { name: 'fromChainId', type: 'uint256' },
+    ],
+    outputs: [],
+  },
 ];
 
 // =============================================================================
@@ -153,6 +201,11 @@ const BRIDGE_ABI = [
  * Set of bridge IDs that have been processed to prevent duplicate fulfillments
  */
 const processedBridges = new Set();
+
+/**
+ * Set of migration IDs that have been fulfilled to prevent duplicate mints
+ */
+const processedMigrations = new Set();
 
 // =============================================================================
 // Client Initialization
@@ -419,6 +472,189 @@ async function processHistoricalRequests(clients, chainId) {
 }
 
 // =============================================================================
+// LP Migration Processing
+// =============================================================================
+
+/**
+ * Wait until the source burn has the configured number of confirmations.
+ *
+ * @param {Object} client - Source chain client
+ * @param {bigint} burnBlock - Block the burn was included in
+ * @param {number} confirmations - Confirmations required on this chain
+ */
+async function waitForConfirmations(client, burnBlock, confirmations) {
+  const target = BigInt(burnBlock) + BigInt(confirmations);
+  for (;;) {
+    const current = await client.public.getBlockNumber();
+    if (current >= target) return;
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+}
+
+/**
+ * Process an LP migration by minting the migrated value on the destination chain,
+ * after the source burn has reached the required confirmations and the destination
+ * holds enough free MOON to back the new claim.
+ *
+ * @param {Object} clients - Map of chain clients
+ * @param {Object} m - Migration request details
+ * @param {string} sourceChainId - Source chain ID where the burn happened
+ */
+async function processMigrationRequest(clients, m, sourceChainId) {
+  const sourceClient = clients[sourceChainId];
+  const destChainId = Number(m.toChainId);
+  const destClient = clients[destChainId];
+
+  if (!destClient) {
+    console.log(`  ⚠️  Migration destination chain ${destChainId} not supported by relayer`);
+    return;
+  }
+
+  const id = m.migrationId;
+  if (processedMigrations.has(id)) {
+    return;
+  }
+
+  console.log(`\n🔀 LP Migration Detected`);
+  console.log(`  Migration ID: ${id}`);
+  console.log(`  From: ${sourceClient.config.name} → ${destClient.config.name}`);
+  console.log(`  Account: ${m.account}`);
+  console.log(`  Net value: ${formatEther(m.net)}`);
+
+  try {
+    // Idempotency: skip if the destination already recorded this migration.
+    const already = await destClient.public.readContract({
+      address: destClient.bridgeAddress,
+      abi: BRIDGE_ABI,
+      functionName: 'processedMigrations',
+      args: [id],
+    });
+
+    if (already) {
+      console.log(`  ✅ Already fulfilled`);
+      processedMigrations.add(id);
+      return;
+    }
+
+    // Wait the configured confirmations on the source burn before minting.
+    const need = sourceClient.config.migrationConfirmations;
+    console.log(`  ⏳ Waiting ${need} confirmations on source burn (block ${m.blockNumber})...`);
+    await waitForConfirmations(sourceClient, m.blockNumber, need);
+
+    // Solvency: destination must hold enough free MOON to back the migrated claim.
+    const surplus = await destClient.public.readContract({
+      address: destClient.bridgeAddress,
+      abi: BRIDGE_ABI,
+      functionName: 'getRescuableSurplus',
+      args: [m.assetId],
+    });
+
+    if (surplus < m.net) {
+      console.log(`  ⛔ Destination free MOON ${formatEther(surplus)} < ${formatEther(m.net)}; cannot back yet, will retry later`);
+      return; // leave unprocessed so a later pass can retry once liquidity returns
+    }
+
+    console.log(`  🚀 Minting migrated value on destination...`);
+
+    const hash = await destClient.wallet.writeContract({
+      address: destClient.bridgeAddress,
+      abi: BRIDGE_ABI,
+      functionName: 'fulfillLPMigration',
+      args: [id, m.assetId, m.account, m.net, BigInt(sourceChainId)],
+    });
+
+    console.log(`  📤 Fulfill TX: ${hash}`);
+
+    const receipt = await destClient.public.waitForTransactionReceipt({
+      hash,
+      confirmations: destClient.config.confirmations,
+    });
+
+    if (receipt.status === 'success') {
+      console.log(`  ✅ Migrated! Block: ${receipt.blockNumber}`);
+      processedMigrations.add(id);
+    } else {
+      console.log(`  ❌ Migration fulfill failed`);
+    }
+  } catch (error) {
+    console.error(`  ❌ Migration error: ${error.message}`);
+  }
+}
+
+/**
+ * Watch for new LPMigrationRequested events on a specific chain.
+ */
+function watchMigrationRequests(clients, chainId) {
+  const client = clients[chainId];
+
+  console.log(`👁️  Watching ${client.config.name} migrations...`);
+
+  return client.public.watchContractEvent({
+    address: client.bridgeAddress,
+    abi: BRIDGE_ABI,
+    eventName: 'LPMigrationRequested',
+    onLogs: async (logs) => {
+      for (const log of logs) {
+        const m = {
+          migrationId: log.args.migrationId,
+          assetId: log.args.assetId,
+          account: log.args.account,
+          net: log.args.net,
+          fee: log.args.fee,
+          fromChainId: log.args.fromChainId,
+          toChainId: log.args.toChainId,
+          blockNumber: log.blockNumber,
+        };
+        await processMigrationRequest(clients, m, chainId);
+      }
+    },
+    onError: (error) => {
+      console.error(`❌ Error watching ${client.config.name} migrations: ${error.message}`);
+    },
+  });
+}
+
+/**
+ * Process historical LP migration requests from recent blocks.
+ */
+async function processHistoricalMigrations(clients, chainId) {
+  const client = clients[chainId];
+
+  console.log(`🔍 Checking historical migrations on ${client.config.name}...`);
+
+  try {
+    const currentBlock = await client.public.getBlockNumber();
+    const maxBlocks = BigInt(client.config.maxHistoricalBlocks || 10000);
+    const fromBlock = currentBlock - maxBlocks < 0n ? 0n : currentBlock - maxBlocks;
+
+    const logs = await client.public.getLogs({
+      address: client.bridgeAddress,
+      event: BRIDGE_ABI.find((item) => item.name === 'LPMigrationRequested'),
+      fromBlock,
+      toBlock: currentBlock,
+    });
+
+    console.log(`  Found ${logs.length} historical migrations`);
+
+    for (const log of logs) {
+      const m = {
+        migrationId: log.args.migrationId,
+        assetId: log.args.assetId,
+        account: log.args.account,
+        net: log.args.net,
+        fee: log.args.fee,
+        fromChainId: log.args.fromChainId,
+        toChainId: log.args.toChainId,
+        blockNumber: log.blockNumber,
+      };
+      await processMigrationRequest(clients, m, chainId);
+    }
+  } catch (error) {
+    console.error(`  Error processing historical migrations: ${error.message}`);
+  }
+}
+
+// =============================================================================
 // Main
 // =============================================================================
 
@@ -438,14 +674,17 @@ async function main() {
   // Process recent historical requests on all chains
   for (const chainId of Object.keys(clients)) {
     await processHistoricalRequests(clients, chainId);
+    await processHistoricalMigrations(clients, chainId);
   }
 
   console.log('\n📡 Starting event watchers...\n');
 
-  // Start watching for new requests on all chains
-  const unwatchers = Object.keys(clients).map(chainId =>
-    watchBridgeRequests(clients, chainId)
-  );
+  // Start watching for new bridge requests and LP migrations on all chains
+  const unwatchers = [];
+  for (const chainId of Object.keys(clients)) {
+    unwatchers.push(watchBridgeRequests(clients, chainId));
+    unwatchers.push(watchMigrationRequests(clients, chainId));
+  }
 
   console.log('✅ Relayer running!\n');
 

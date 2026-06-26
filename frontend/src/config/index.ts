@@ -274,6 +274,33 @@ export const BRIDGE_ABI = [
     ],
     outputs: [],
   },
+  // LP migration: burn LP here, mint equivalent value as LP on another chain
+  {
+    type: 'function',
+    name: 'requestLPMigration',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'assetId', type: 'bytes32' },
+      { name: 'lpTokenAmount', type: 'uint256' },
+      { name: 'toChainId', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'quoteMigration',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'assetId', type: 'bytes32' },
+      { name: 'lpTokenAmount', type: 'uint256' },
+      { name: 'account', type: 'address' },
+    ],
+    outputs: [
+      { name: 'value', type: 'uint256' },
+      { name: 'fee', type: 'uint256' },
+      { name: 'net', type: 'uint256' },
+    ],
+  },
   // View functions
   {
     type: 'function',
